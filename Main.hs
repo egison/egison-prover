@@ -24,13 +24,19 @@ main = do
 --- Monad
 ---
 
--- TODO: define the type of CheckM (io, fresh, exception)
-
 data PwlError
   = Default String
+  | TypeDoesNotMatch Expr Expr
+  | UnboundVariable Name
+  | ShouldBe String Expr
+  | NotConvertible Expr Expr
 
 instance Show PwlError where
-  show (Default msg) = "Error: " ++ msg
+  show (Default msg) = "Type error: " ++ msg
+  show (TypeDoesNotMatch v t) = "Type error: the type of " ++ show v ++ " does not match " ++ show t ++ "."
+  show (UnboundVariable n) = "Type error: " ++ n ++ " is unbound."
+  show (ShouldBe s v) = "Type error: " ++ show v ++ " should be " ++ s ++ "."
+  show (NotConvertible e1 e2) = "Type error: " ++ show e1 ++ " and " ++ show e2 ++ " are not convertible."
 
 instance Exception PwlError
 
@@ -92,7 +98,7 @@ getFromTEnv :: TEnv -> Name -> CheckM TVal
 getFromTEnv gamma x =
   match dfs gamma (List (Pair Eql Something))
     [[mc| _ ++ (#x, $t) : _ -> return t |],
-     [mc| _ -> throw (Default "") |]]
+     [mc| _ -> throw (UnboundVariable x) |]]
 
 ---
 --- Desugar
@@ -151,7 +157,7 @@ check gamma (LambdaE x e) a = do
     PiE y b c -> do
       e' <- check (gamma ++ [(x, b)]) e c
       return (LambdaE x e')
-    _ -> throw (Default "")
+    _ -> throw (TypeDoesNotMatch (LambdaE x e) a')
 check gamma (PairE e1 e2) a = do
   a' <- evalWHNF a
   case a' of
@@ -159,7 +165,7 @@ check gamma (PairE e1 e2) a = do
       s <- check gamma e1 b
       t <- check gamma e2 (substitute x s c)
       return (PairE s t)
-    _ -> throw (Default "")
+    _ -> throw (TypeDoesNotMatch (PairE e1 e2) a')
 check gamma e a = do
   (b, t) <- infer gamma e
   isSubtype gamma a b
@@ -176,21 +182,21 @@ infer gamma (ApplyE e1 e2) = do
     PiE x b c -> do
       t <- check gamma e2 b
       return (substitute x t c, ApplyE s t)
-    _ -> throw (Default "")
+    _ -> throw (ShouldBe "function" e1)
 infer gamma (Proj1E e) = do
   (a, t) <- infer gamma e
   a' <- evalWHNF a
   case a' of
     SigmaE _ b _ -> do
       return (b, Proj1E t)
-    _ -> throw (Default "")
+    _ -> throw (ShouldBe "pair" e)
 infer gamma (Proj2E e) = do
   (a, t) <- infer gamma e
   a' <- evalWHNF a
   case a' of
     SigmaE x _ c -> do
       return (substitute x (Proj1E t) c, Proj2E t)
-    _ -> throw (Default "")
+    _ -> throw (ShouldBe "pair" e)
 infer gamma (PiE x e1 e2) = do
   (c1, a) <- infer gamma e1
   (c2, b) <- infer (gamma ++ [(x, a)]) e2
@@ -215,7 +221,7 @@ infer _ e@UnitTypeE = do
   return (UniverseE 0, e)
 infer _ e@(UniverseE n) = do
   return (UniverseE (n + 1), e)
-infer _ _ = throw (Default "")
+infer _ _ = throw (Default "not implemented")
 
 isSubtype :: TEnv -> Expr -> Expr -> CheckM ()
 isSubtype gamma a b = do
@@ -231,13 +237,13 @@ isSubtype' gamma (PiE x a1 b1) (PiE y a2 b2) =
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
       isSubtype (gamma ++ [(x, a1)]) b1 b2
-    else throw (Default "")
+    else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
 isSubtype' gamma (SigmaE x a1 b1) (SigmaE y a2 b2) =
   if x == y
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
       isSubtype (gamma ++ [(x, a1)]) b1 b2
-    else throw (Default "")
+    else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
 isSubtype' gamma a b = isConvertible' gamma a b UniverseAlphaE
 
 isConvertible :: TEnv -> Expr -> Expr -> Expr -> CheckM ()
@@ -249,19 +255,19 @@ isConvertible gamma s t a = do
 
 isConvertible' :: TEnv -> Expr -> Expr -> Expr -> CheckM ()
 isConvertible' gamma (UniverseE i) (UniverseE j) UniverseAlphaE =
-  if i == j then return () else throw (Default "")
+  if i == j then return () else throw (NotConvertible (UniverseE i) (UniverseE j))
 isConvertible' gamma (PiE x a1 b1) (PiE y a2 b2) UniverseAlphaE =
   if x == y
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
       isConvertible (gamma ++ [(x, a1)]) b1 b2 UniverseAlphaE
-    else throw (Default "")
+    else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
 isConvertible' gamma (SigmaE x a1 b1) (SigmaE y a2 b2) UniverseAlphaE =
   if x == y
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
       isConvertible (gamma ++ [(x, a1)]) b1 b2 UniverseAlphaE
-    else throw (Default "")
+    else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
 isConvertible' gamma s t UnitTypeE = return ()
 isConvertible' gamma s t (PiE x a b) = isConvertible (gamma ++ [(x, a)]) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
 isConvertible' gamma s t (SigmaE x a b) = do
@@ -352,17 +358,19 @@ substitute _ _ e = e
 --- Sample programs without pattern matching
 ---
 
---(define (id (A : (Universe 0)) (_ : A)) : A
+--(define (id (A : (Universe 0)) (x : A)) : A
 --  x)
 idDef :: TopExpr
-idDef = DefE "id" (PiE "A" (UniverseE 0) (PiE "_" (VarE "A") (VarE "A")))
-  (LambdaE "A" (LambdaE "x" (VarE "x")))
-
+idDef = DefFunE "id"
+  [("A", UniverseE 0), ("x", VarE "A")]
+  (VarE "A")
+  (VarE "x")
 
 --(define (comp (A : (Universe 0)) (B : (Universe 0)) (C : B -> (Universe 0)) (f : (Π (b : B) (C b))) (g : A -> B) (a : A)) : (C (g a))
 --  (f (g a)))
 compDef :: TopExpr
-compDef = DefFunE "comp" [("A", UniverseE 0), ("B", UniverseE 0), ("C", ArrowE (VarE "B") (UniverseE 0)), ("f", PiE "x" (VarE "B") (ApplyE (VarE "C") (VarE "x"))), ("g", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A")]
+compDef = DefFunE "comp"
+  [("A", UniverseE 0), ("B", UniverseE 0), ("C", ArrowE (VarE "B") (UniverseE 0)), ("f", PiE "x" (VarE "B") (ApplyE (VarE "C") (VarE "x"))), ("g", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A")]
   (ApplyE (VarE "C") (ApplyE (VarE "g") (VarE "x")))
   (ApplyE (VarE "f") (ApplyE (VarE "g") (VarE "x")))
 
@@ -378,27 +386,17 @@ natDef = DataDecE "Nat" [] (UniverseE 0)
   [("zero", (VarE "Nat")),
    ("suc", (ArrowE (VarE "Nat") (VarE "Nat")))]
 
---(data (Vec (A : (Universe 0)) (_ : Nat)) : (Universe 0)
---  {[nil  : (Vec A <zero>)]
---   [cons (n : Nat) (_ : A) (_ : (Vec A n)) : (Vec A <suc n>)]})
-vecDef :: TopExpr
-vecDef = DataDecE "Vec" [("A", (UniverseE 0))] (ArrowE (VarE "Nat") (UniverseE 0))
-  [("nil", (TypeE (VarE "Vec") [(VarE "A"), (VarE "zero")])),
-   ("cons", (PiE "n" (VarE "Nat") (ArrowE (VarE "A") (ArrowE (TypeE (VarE "Vec") [(VarE "A"), (VarE "n")]) (TypeE (VarE "Vec") [(VarE "A"), (DataE "suc" [VarE "n"])])))))]
-
 --(data (Eq (A : (Universe 0)) (x : A)) : A -> (Universe 0)
 --  {[refl  : (Eq A x x)]})
 eqDef :: TopExpr
 eqDef = DataDecE "Eq" [("A", UniverseE 0), ("x", VarE "A")] (ArrowE (VarE "A") (UniverseE 0))
   [("refl", TypeE (VarE "Eq") [VarE "A", VarE "x", VarE "x"])]
 
---(data Lte : Nat -> Nat -> (Universe 0)
---  {[lz (y : Nat) : (Lte <zero> y)]
---   [ls (x : Nat) (y : Nat) (_ : (Lte x y)) : (Lte <suc x> <suc y>)]})
-lteDef :: TopExpr
-lteDef = DataDecE "Lte" [] (ArrowE (VarE "Nat") (ArrowE (VarE "Nat") (UniverseE 0)))
-  [("lz", PiE "n" (VarE "Nat") (TypeE (VarE "Lte") [VarE "zero", VarE "n"])),
-   ("ls", PiE "m" (VarE "Nat") (PiE "n" (VarE "Nat") (ArrowE (TypeE (VarE "Lte") [VarE "m", VarE "n"]) (TypeE (VarE "Lte") [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))))]
+--(def (cong (f : A -> B) (x : A) (y : A) (_ : (Eq x y))) : (Eq (f x) (f y))
+--  {[[_ _ _ <refl>] <refl>]})
+congDef :: TopExpr
+congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE (VarE "Eq") [VarE "x", VarE "y"])] (TypeE (VarE "Eq") [ApplyE (VarE "f") (VarE "x"), ApplyE (VarE "f") (VarE "y")])
+  [([PatVar "f", Pattern "refl" []], VarE "refl")]
 
 --(define (plus (_ : Nat) (_ : Nat)) : Nat
 --  {[[<zero> $n] n]
@@ -416,11 +414,13 @@ plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE (VarE "Eq") [ApplyM
   [([Pattern "zero" []], VarE "refl"),
    ([Pattern "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
 
---(def (cong (f : A -> B) (x : A) (y : A) (_ : (Eq x y))) : (Eq (f x) (f y))
---  {[[_ _ _ <refl>] <refl>]})
-congDef :: TopExpr
-congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE (VarE "Eq") [VarE "x", VarE "y"])] (TypeE (VarE "Eq") [ApplyE (VarE "f") (VarE "x"), ApplyE (VarE "f") (VarE "y")])
-  [([PatVar "f", Pattern "refl" []], VarE "refl")]
+--(data Lte : Nat -> Nat -> (Universe 0)
+--  {[lz (y : Nat) : (Lte <zero> y)]
+--   [ls (x : Nat) (y : Nat) (_ : (Lte x y)) : (Lte <suc x> <suc y>)]})
+lteDef :: TopExpr
+lteDef = DataDecE "Lte" [] (ArrowE (VarE "Nat") (ArrowE (VarE "Nat") (UniverseE 0)))
+  [("lz", PiE "n" (VarE "Nat") (TypeE (VarE "Lte") [VarE "zero", VarE "n"])),
+   ("ls", PiE "m" (VarE "Nat") (PiE "n" (VarE "Nat") (ArrowE (TypeE (VarE "Lte") [VarE "m", VarE "n"]) (TypeE (VarE "Lte") [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))))]
 
 --(def (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq m n)
 --  {[[#<zero> #<zero> <lz #<zero>> <lz #<zero>>] <refl>]
@@ -430,3 +430,10 @@ antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", Typ
   [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), Pattern "lz" [InaccessiblePat (DataE "zero" [])], Pattern "lz" [InaccessiblePat (DataE "zero" [])]], VarE "refl"),
    ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), Pattern"ls" [PatVar "k", PatVar "l", PatVar "x"], Pattern "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
 
+--(data (Vec (A : (Universe 0)) (_ : Nat)) : (Universe 0)
+--  {[nil  : (Vec A <zero>)]
+--   [cons (n : Nat) (_ : A) (_ : (Vec A n)) : (Vec A <suc n>)]})
+vecDef :: TopExpr
+vecDef = DataDecE "Vec" [("A", (UniverseE 0))] (ArrowE (VarE "Nat") (UniverseE 0))
+  [("nil", (TypeE (VarE "Vec") [(VarE "A"), (VarE "zero")])),
+   ("cons", (PiE "n" (VarE "Nat") (ArrowE (VarE "A") (ArrowE (TypeE (VarE "Vec") [(VarE "A"), (VarE "n")]) (TypeE (VarE "Vec") [(VarE "A"), (DataE "suc" [VarE "n"])])))))]
