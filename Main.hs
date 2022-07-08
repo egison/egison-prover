@@ -11,18 +11,18 @@ import Control.Egison hiding (Pattern)
 
 main :: IO ()
 main = do
-  ret <- runCheckM (checkTopExpr [] (desugarTopExpr idDef))
+  let topExprs = map desugarTopExpr [idDef, compDef]
+  let gamma = initTopTEnv topExprs
+  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr idDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
-  ret <- runCheckM (checkTopExpr [] (desugarTopExpr compDef))
+  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr compDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
   
----
 --- Monad
----
 
 data PwlError
   = Default String
@@ -45,9 +45,7 @@ type CheckM = ExceptT PwlError IO
 runCheckM :: CheckM a -> IO (Either PwlError a)
 runCheckM = runExceptT
 
----
 --- Datatypes
----
 
 type Name = String
 
@@ -88,21 +86,31 @@ data Pattern
 type TVal = Expr
 type Val = Expr
 
-type TEnv = [(Name, TVal)]
-type VEnv = [(Name, Val)]
+type TEnv = [(Name, TVal)] -- Type environment
+type VEnv = [(Name, Val)]  -- Value environment
+type DEnv = [(Name, Telescope, Expr)] -- Datatype enviroment
+type CEnv = [(Name, Telescope, Expr)] -- Constructor enviroment
   
-type Context = [(Name, Expr)]
-type Telescope = [(Name, Expr)]
+type Context = [(Name, TVal)]
+type Telescope = [(Name, TVal)]
 
-getFromTEnv :: TEnv -> Name -> CheckM TVal
-getFromTEnv gamma x =
+initTopTEnv :: [TopExpr] -> TEnv
+initTopTEnv [] = []
+initTopTEnv (DefE n t _ : rs) = (n, t) : (initTopTEnv rs)
+initTopTEnv (_ : rs) = initTopTEnv rs
+
+initTopDEnv :: [TopExpr] -> DEnv
+initTopDEnv [] = []
+initTopDEnv (DataDecE n as t _ : rs) = (n, as, t) : (initTopDEnv rs)
+initTopDEnv (_ : rs) = initTopDEnv rs
+
+getFromEnv :: [(Name, a)] -> Name -> CheckM a
+getFromEnv gamma x =
   match dfs gamma (List (Pair Eql Something))
     [[mc| _ ++ (#x, $t) : _ -> return t |],
      [mc| _ -> throw (UnboundVariable x) |]]
 
----
 --- Desugar
----
 
 desugarTopExpr :: TopExpr -> TopExpr
 desugarTopExpr (DataDecE n as t cs) =
@@ -141,9 +149,7 @@ desugarPattern (InaccessiblePat e) = InaccessiblePat (desugarExpr e)
 desugarPattern (Pattern n ps) = Pattern n (map desugarPattern ps)
 desugarPattern p = p
                 
----
 --- Type checking
----
 
 checkTopExpr :: TEnv -> TopExpr -> CheckM TopExpr
 checkTopExpr gamma (DefE n t e) = do
@@ -173,7 +179,7 @@ check gamma e a = do
 
 infer :: TEnv -> Expr -> CheckM (Expr, Expr)
 infer gamma e@(VarE x) = do
-  a <- getFromTEnv gamma x
+  a <- getFromEnv gamma x
   return (a, e)
 infer gamma (ApplyE e1 e2) = do
   (a, s) <- infer gamma e1
@@ -284,7 +290,7 @@ isEqual :: TEnv -> Expr -> Expr -> CheckM Expr
 isEqual gamma (VarE x) (VarE y) =
   if x == y
     then do
-      a <- getFromTEnv gamma x
+      a <- getFromEnv gamma x
       return a
     else throw (Default "")
 isEqual gamma (ApplyE s1 t1) (ApplyE s2 t2) = do
@@ -309,10 +315,6 @@ isEqual gamma (Proj2E s) (Proj2E t) = do
     SigmaE x b c -> do
       return (substitute x (Proj1E s) c)
     _ -> throw (Default "")
-
----
---- Utility functions
----
 
 evalWHNF :: Expr -> CheckM Expr
 evalWHNF (ApplyE e1 e2) = do
@@ -354,6 +356,9 @@ substitute x v (Proj1E e1) = Proj1E (substitute x v e1)
 substitute x v (Proj2E e1) = Proj2E (substitute x v e1)
 substitute _ _ e = e
 
+--- Type-checking for inductive patterns
+
+
 ---
 --- Sample programs without pattern matching
 ---
@@ -392,10 +397,10 @@ eqDef :: TopExpr
 eqDef = DataDecE "Eq" [("A", UniverseE 0), ("x", VarE "A")] (ArrowE (VarE "A") (UniverseE 0))
   [("refl", TypeE (VarE "Eq") [VarE "A", VarE "x", VarE "x"])]
 
---(def (cong (f : A -> B) (x : A) (y : A) (_ : (Eq x y))) : (Eq (f x) (f y))
+--(def (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
 --  {[[_ _ _ <refl>] <refl>]})
 congDef :: TopExpr
-congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE (VarE "Eq") [VarE "x", VarE "y"])] (TypeE (VarE "Eq") [ApplyE (VarE "f") (VarE "x"), ApplyE (VarE "f") (VarE "y")])
+congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE (VarE "Eq") [VarE "A", VarE "x", VarE "y"])] (TypeE (VarE "Eq") [VarE "B", ApplyE (VarE "f") (VarE "x"), ApplyE (VarE "f") (VarE "y")])
   [([PatVar "f", Pattern "refl" []], VarE "refl")]
 
 --(define (plus (_ : Nat) (_ : Nat)) : Nat
@@ -406,11 +411,11 @@ plusDef = DefCaseE "plus" [("_", VarE "Nat"), ("_", VarE "Nat")] (VarE "Nat")
   [([Pattern "zero" [], PatVar "n"], VarE "n"),
    ([Pattern "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
 
---(def (plusZero (n : Nat)) : (Eq (plus n <zero>) n)
+--(def (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
 --   [<suc $m> (cong suc (plusZero m))]})
 plusZeroDef :: TopExpr
-plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE (VarE "Eq") [ApplyMultiE (VarE "plus") [(VarE "n"), (VarE "zero")], (VarE "n")])
+plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE (VarE "Eq") [VarE "Nat", ApplyMultiE (VarE "plus") [(VarE "n"), (VarE "zero")], (VarE "n")])
   [([Pattern "zero" []], VarE "refl"),
    ([Pattern "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
 
@@ -422,11 +427,11 @@ lteDef = DataDecE "Lte" [] (ArrowE (VarE "Nat") (ArrowE (VarE "Nat") (UniverseE 
   [("lz", PiE "n" (VarE "Nat") (TypeE (VarE "Lte") [VarE "zero", VarE "n"])),
    ("ls", PiE "m" (VarE "Nat") (PiE "n" (VarE "Nat") (ArrowE (TypeE (VarE "Lte") [VarE "m", VarE "n"]) (TypeE (VarE "Lte") [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))))]
 
---(def (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq m n)
+--(def (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
 --  {[[#<zero> #<zero> <lz #<zero>> <lz #<zero>>] <refl>]
 --   [[#<suc m'> #<suc n'> <ls $m' $n' $x> <ls #n' #m' $y>] (cong suc (antisym m' n' x y))]})
 antisymDef :: TopExpr
-antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE (VarE "Lte") [VarE "m", VarE "n"]), ("_", TypeE (VarE "Lte") [VarE "n", VarE "m"])] (TypeE (VarE "Eq") [VarE "m", VarE "n"])
+antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE (VarE "Lte") [VarE "m", VarE "n"]), ("_", TypeE (VarE "Lte") [VarE "n", VarE "m"])] (TypeE (VarE "Eq") [VarE "Nat", VarE "m", VarE "n"])
   [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), Pattern "lz" [InaccessiblePat (DataE "zero" [])], Pattern "lz" [InaccessiblePat (DataE "zero" [])]], VarE "refl"),
    ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), Pattern"ls" [PatVar "k", PatVar "l", PatVar "x"], Pattern "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
 
