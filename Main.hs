@@ -91,7 +91,6 @@ type VEnv = [(Name, Val)]  -- Value environment
 type DEnv = [(Name, Telescope, Expr)] -- Datatype enviroment
 type CEnv = [(Name, Telescope, Expr)] -- Constructor enviroment
   
-type Context = [(Name, TVal)]
 type Telescope = [(Name, TVal)]
 
 initTopTEnv :: [TopExpr] -> TEnv
@@ -169,7 +168,7 @@ check gamma (PairE e1 e2) a = do
   case a' of
     SigmaE x b c -> do
       s <- check gamma e1 b
-      t <- check gamma e2 (substitute x s c)
+      t <- check gamma e2 (substitute1 x s c)
       return (PairE s t)
     _ -> throw (TypeDoesNotMatch (PairE e1 e2) a')
 check gamma e a = do
@@ -187,7 +186,7 @@ infer gamma (ApplyE e1 e2) = do
   case a' of
     PiE x b c -> do
       t <- check gamma e2 b
-      return (substitute x t c, ApplyE s t)
+      return (substitute1 x t c, ApplyE s t)
     _ -> throw (ShouldBe "function" e1)
 infer gamma (Proj1E e) = do
   (a, t) <- infer gamma e
@@ -201,7 +200,7 @@ infer gamma (Proj2E e) = do
   a' <- evalWHNF a
   case a' of
     SigmaE x _ c -> do
-      return (substitute x (Proj1E t) c, Proj2E t)
+      return (substitute1 x (Proj1E t) c, Proj2E t)
     _ -> throw (ShouldBe "pair" e)
 infer gamma (PiE x e1 e2) = do
   (c1, a) <- infer gamma e1
@@ -278,7 +277,7 @@ isConvertible' gamma s t UnitTypeE = return ()
 isConvertible' gamma s t (PiE x a b) = isConvertible (gamma ++ [(x, a)]) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
 isConvertible' gamma s t (SigmaE x a b) = do
   isConvertible gamma (Proj1E s) (Proj1E t) a
-  isConvertible gamma (Proj2E s) (Proj2E t) (substitute x (Proj1E s) b)
+  isConvertible gamma (Proj2E s) (Proj2E t) (substitute1 x (Proj1E s) b)
 isConvertible' gamma s t a = do
   if isNeutral s && isNeutral t
     then do
@@ -299,7 +298,7 @@ isEqual gamma (ApplyE s1 t1) (ApplyE s2 t2) = do
   case a' of
     PiE x b c -> do
       isConvertible gamma t1 t2 b
-      return (substitute x t1 c)
+      return (substitute1 x t1 c)
     _ -> throw (Default "")
 isEqual gamma (Proj1E s) (Proj1E t) = do
   a <- isEqual gamma s t
@@ -313,14 +312,14 @@ isEqual gamma (Proj2E s) (Proj2E t) = do
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
-      return (substitute x (Proj1E s) c)
+      return (substitute1 x (Proj1E s) c)
     _ -> throw (Default "")
 
 evalWHNF :: Expr -> CheckM Expr
 evalWHNF (ApplyE e1 e2) = do
   e1' <- evalWHNF e1
   case e1' of
-    LambdaE x b -> return (substitute x e2 b) 
+    LambdaE x b -> return (substitute1 x e2 b) 
     _ -> return (ApplyE e1' e2)
 evalWHNF (Proj1E e) = do
   e' <- evalWHNF e
@@ -341,23 +340,77 @@ isNeutral (Proj1E e) = isNeutral e
 isNeutral (Proj2E e) = isNeutral e
 isNeutral _ = False
 
-substitute :: Name -> Expr -> Expr -> Expr
-substitute x v e@(VarE y) | x == y    = v
+substitute :: [(Name, Expr)] -> Expr -> Expr
+substitute [] e = e
+substitute ((x, v) : ms) e = substitute ms (substitute1 x v e)
+
+substitute1 :: Name -> Expr -> Expr -> Expr
+substitute1 x v e@(VarE y) | x == y    = v
                           | otherwise = e
-substitute x v e@(PiE y e1 e2) | x == y    = e
-                               | otherwise = PiE y (substitute x v e1) (substitute x v e2)
-substitute x v e@(LambdaE y e1) | x == y    = e
-                                | otherwise = LambdaE y (substitute x v e1)
-substitute x v (ApplyE e1 e2) = ApplyE (substitute x v e1) (substitute x v e2)
-substitute x v e@(SigmaE y e1 e2) | x == y    = e
-                                  | otherwise = SigmaE y (substitute x v e1) (substitute x v e2)
-substitute x v (PairE e1 e2) = PairE (substitute x v e1) (substitute x v e2)
-substitute x v (Proj1E e1) = Proj1E (substitute x v e1)
-substitute x v (Proj2E e1) = Proj2E (substitute x v e1)
-substitute _ _ e = e
+substitute1 x v e@(PiE y e1 e2) | x == y    = e
+                               | otherwise = PiE y (substitute1 x v e1) (substitute1 x v e2)
+substitute1 x v e@(LambdaE y e1) | x == y    = e
+                                | otherwise = LambdaE y (substitute1 x v e1)
+substitute1 x v (ApplyE e1 e2) = ApplyE (substitute1 x v e1) (substitute1 x v e2)
+substitute1 x v e@(SigmaE y e1 e2) | x == y    = e
+                                  | otherwise = SigmaE y (substitute1 x v e1) (substitute1 x v e2)
+substitute1 x v (PairE e1 e2) = PairE (substitute1 x v e1) (substitute1 x v e2)
+substitute1 x v (Proj1E e1) = Proj1E (substitute1 x v e1)
+substitute1 x v (Proj2E e1) = Proj2E (substitute1 x v e1)
+substitute1 _ _ e = e
+
+substitutePat :: [(Name, Pattern)] -> Pattern -> Pattern
+substitutePat [] p = p
+substitutePat ((x, q) : ms) p = substitutePat ms (substitutePat1 x q p)
+
+substitutePat1 = undefined
 
 --- Type-checking for inductive patterns
 
+type Context = [(Pattern, TVal)]
+type ContextMapping = ([(Name, Pattern)], Context, Context)
+
+split :: [Pattern] -> Context -> CheckM ContextMapping
+split = undefined
+
+updatePat :: ContextMapping -> [Pattern] -> CheckM [Pattern]
+updatePat (ms, _, delta) ps = updatePat' (map (substitutePat ms) (map (\(q, _) -> q) delta)) ps
+
+updatePat' :: [Pattern] -> [Pattern] -> CheckM [Pattern]
+updatePat' [] [] = return []
+updatePat' (sigma : sigmas) (p : ps) = do
+  q1 <- updatePat1 sigma p
+  q2 <- updatePat' sigmas ps
+  return (q1 ++ q2)
+ where
+  updatePat1 sigma@(PatVar _) p = return [p]
+  updatePat1 (InaccessiblePat _) _ = return []
+  updatePat1 (Pattern c sigmas) (Pattern c' ps) =
+    if c == c'
+      then updatePat' sigmas ps
+      else throw (Default "")
+
+proceed :: [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
+proceed ps (ms, delta, gamma) = do
+  (ms', delta', _) <- split ps delta
+  ps' <- updatePat (ms', delta', delta) ps
+  return (ps', (ms ++ ms', delta', gamma))
+
+proceedMulti :: [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
+proceedMulti ps sigma = undefined
+
+checkPats :: [Pattern] -> Context -> CheckM ([Pattern], ContextMapping)
+checkPats ps gamma = proceedMulti ps (idContextMapping gamma)
+
+idContextMapping :: Context -> ContextMapping
+idContextMapping gamma = ([], gamma, gamma)
+
+flexible :: [Pattern] -> Context -> [Name]
+flexible [] [] = []
+flexible (InaccessiblePat _ : ps) ((PatVar x, _) : delta) = x : flexible ps delta
+
+unify :: [Name] -> Context -> [Expr] -> [Expr] -> [Expr] -> ContextMapping
+unify zeta delta vs ws xi = undefined
 
 ---
 --- Sample programs without pattern matching
