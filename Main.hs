@@ -50,7 +50,7 @@ runCheckM = runExceptT
 type Name = String
 
 data TopExpr
-  = DataDecE Name [(Name, Expr)] Expr [(Name, Expr)] -- datatype name, telescope, type, [(constructor name, type)]
+  = DataDecE Name [(Name, Expr)] [(Name, Expr)] [(Name, Expr)] -- datatype name, telescope, indices, [(constructor name, type)]
   | DefE Name Expr Expr -- name, type, expr
   | DefFunE Name [(Name, Expr)] Expr Expr -- SHOULD DESUGARED: name, types of arguments, type of return value, expr
   | DefCaseE Name [(Name, Expr)] Expr [([Pattern], Expr)] -- SHOULD DESUGARED: name, types of arguments, type of return value, [(patterns, body)]
@@ -72,7 +72,7 @@ data Expr
   | UniverseAlphaE -- Only internal use: Universe for some integer alpha
   | UnitTypeE
   | UnitE
-  | TypeE Expr [Expr]
+  | TypeE Expr [Expr] [Expr]
   | DataE Name [Expr]
   | CaseE [Expr] [([Pattern], Expr)]
  deriving Show
@@ -86,12 +86,14 @@ data Pattern
 type TVal = Expr
 type Val = Expr
 
+type Env = (TEnv, DEnv, CEnv, VEnv)
 type TEnv = [(Name, TVal)] -- Type environment
 type VEnv = [(Name, Val)]  -- Value environment
-type DEnv = [(Name, Telescope, Expr)] -- Datatype enviroment
+type DEnv = [(Name, Telescope, Indices)] -- Datatype enviroment
 type CEnv = [(Name, Telescope, Expr)] -- Constructor enviroment
   
 type Telescope = [(Name, TVal)]
+type Indices = [(Name, TVal)]
 
 initTopTEnv :: [TopExpr] -> TEnv
 initTopTEnv [] = []
@@ -100,8 +102,13 @@ initTopTEnv (_ : rs) = initTopTEnv rs
 
 initTopDEnv :: [TopExpr] -> DEnv
 initTopDEnv [] = []
-initTopDEnv (DataDecE n as t _ : rs) = (n, as, t) : (initTopDEnv rs)
+initTopDEnv (DataDecE n as is _ : rs) = (n, as, is) : (initTopDEnv rs)
 initTopDEnv (_ : rs) = initTopDEnv rs
+
+initTopCEnv :: [TopExpr] -> CEnv
+initTopCEnv [] = []
+initTopCEnv (DataDecE _ _ _ cs : rs) = cs : (initTopCEnv rs)
+initTopCEnv (_ : rs) = initTopCEnv rs
 
 getFromEnv :: [(Name, a)] -> Name -> CheckM a
 getFromEnv gamma x =
@@ -112,11 +119,11 @@ getFromEnv gamma x =
 --- Desugar
 
 desugarTopExpr :: TopExpr -> TopExpr
-desugarTopExpr (DataDecE n as t cs) =
+desugarTopExpr (DataDecE n as is cs) =
   let as' = map (\(s, e) -> (s, desugarExpr e)) as
-      t' = desugarExpr t
+      is' = map (\(s, e) -> (s, desugarExpr e)) is
       cs' = map (\(s, e) -> (s, desugarExpr e)) cs
-  in DataDecE n as' t' cs'
+  in DataDecE n as' is' cs'
 desugarTopExpr (DefE n t e) =
   let t' = desugarExpr t
       e' = desugarExpr e
@@ -316,6 +323,12 @@ isEqual gamma (Proj2E s) (Proj2E t) = do
     _ -> throw (Default "")
 
 evalWHNF :: Expr -> CheckM Expr
+evalWHNF (VarE n) = do
+  (kind, v) <- getFromEnv env n
+  case (kind, v) of
+    (DatatypeK, (ts, is)) -> undefined
+    (ConstructorK, (ts, e)) -> undefined
+    (ValueK, e) -> return e
 evalWHNF (ApplyE e1 e2) = do
   e1' <- evalWHNF e1
   case e1' of
@@ -408,9 +421,25 @@ idContextMapping gamma = ([], gamma, gamma)
 flexible :: [Pattern] -> Context -> [Name]
 flexible [] [] = []
 flexible (InaccessiblePat _ : ps) ((PatVar x, _) : delta) = x : flexible ps delta
+flexible (_ : ps) (_ : delta) = flexible ps delta
 
-unify :: [Name] -> Context -> [Expr] -> [Expr] -> [Expr] -> ContextMapping
-unify zeta delta vs ws xi = undefined
+unify :: [Name] -> Context -> [Expr] -> [Expr] -> [Expr] -> CheckM ContextMapping
+unify zeta gamma vs ws xi = undefined
+
+unify1 :: [Name] -> Context -> Expr -> Expr -> Expr -> CheckM ContextMapping
+unify1 zeta gamma (VarE x) v _ =
+  if isFlexible x zeta && not (isFree x v)
+    then return ([(x, InaccessiblePat v)], undefined, gamma)
+    else throw (Default "")
+unify1 zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
+  if c1 == c2
+    then do
+      -- get the type of the constructor c1
+      unify zeta gamma us vs undefined
+    else throw (Default "")
+
+isFlexible = undefined
+isFree = undefined
 
 ---
 --- Sample programs without pattern matching
@@ -436,24 +465,24 @@ compDef = DefFunE "comp"
 --- Sample programs with pattern matching
 ---
 
---(data Nat : (Universe 0)
+--(data Nat {} {}
 --  {[zero : Nat]
 --   [suc (_ : Nat) : Nat]})
 natDef :: TopExpr
-natDef = DataDecE "Nat" [] (UniverseE 0)
+natDef = DataDecE "Nat" [] []
   [("zero", (VarE "Nat")),
    ("suc", (ArrowE (VarE "Nat") (VarE "Nat")))]
 
---(data (Eq (A : (Universe 0)) (x : A)) : A -> (Universe 0)
+--(data Eq {(A : (Universe 0)) (x : A)} {A}
 --  {[refl  : (Eq A x x)]})
 eqDef :: TopExpr
-eqDef = DataDecE "Eq" [("A", UniverseE 0), ("x", VarE "A")] (ArrowE (VarE "A") (UniverseE 0))
-  [("refl", TypeE (VarE "Eq") [VarE "A", VarE "x", VarE "x"])]
+eqDef = DataDecE "Eq" [("A", UniverseE 0), ("x", VarE "A")] [("_", VarE "A")]
+  [("refl", TypeE (VarE "Eq") [VarE "A", VarE "x"] [VarE "x"])]
 
 --(def (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
 --  {[[_ _ _ <refl>] <refl>]})
 congDef :: TopExpr
-congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE (VarE "Eq") [VarE "A", VarE "x", VarE "y"])] (TypeE (VarE "Eq") [VarE "B", ApplyE (VarE "f") (VarE "x"), ApplyE (VarE "f") (VarE "y")])
+congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE (VarE "Eq") [VarE "A", VarE "x"] [VarE "y"])] (TypeE (VarE "Eq") [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
   [([PatVar "f", Pattern "refl" []], VarE "refl")]
 
 --(define (plus (_ : Nat) (_ : Nat)) : Nat
@@ -468,30 +497,30 @@ plusDef = DefCaseE "plus" [("_", VarE "Nat"), ("_", VarE "Nat")] (VarE "Nat")
 --  {[<zero> <refl>]
 --   [<suc $m> (cong suc (plusZero m))]})
 plusZeroDef :: TopExpr
-plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE (VarE "Eq") [VarE "Nat", ApplyMultiE (VarE "plus") [(VarE "n"), (VarE "zero")], (VarE "n")])
+plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE (VarE "Eq") [VarE "Nat", ApplyMultiE (VarE "plus") [(VarE "n"), (VarE "zero")]] [VarE "n"])
   [([Pattern "zero" []], VarE "refl"),
    ([Pattern "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
 
---(data Lte : Nat -> Nat -> (Universe 0)
+--(data Lte {} {Nat Nat}
 --  {[lz (y : Nat) : (Lte <zero> y)]
 --   [ls (x : Nat) (y : Nat) (_ : (Lte x y)) : (Lte <suc x> <suc y>)]})
 lteDef :: TopExpr
-lteDef = DataDecE "Lte" [] (ArrowE (VarE "Nat") (ArrowE (VarE "Nat") (UniverseE 0)))
-  [("lz", PiE "n" (VarE "Nat") (TypeE (VarE "Lte") [VarE "zero", VarE "n"])),
-   ("ls", PiE "m" (VarE "Nat") (PiE "n" (VarE "Nat") (ArrowE (TypeE (VarE "Lte") [VarE "m", VarE "n"]) (TypeE (VarE "Lte") [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))))]
+lteDef = DataDecE "Lte" [] [("_", VarE "Nat"), ("_", VarE "Nat")]
+  [("lz", PiE "n" (VarE "Nat") (TypeE (VarE "Lte") [] [VarE "zero", VarE "n"])),
+   ("ls", PiE "m" (VarE "Nat") (PiE "n" (VarE "Nat") (ArrowE (TypeE (VarE "Lte") [] [VarE "m", VarE "n"]) (TypeE (VarE "Lte") [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))))]
 
 --(def (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
 --  {[[#<zero> #<zero> <lz #<zero>> <lz #<zero>>] <refl>]
 --   [[#<suc m'> #<suc n'> <ls $m' $n' $x> <ls #n' #m' $y>] (cong suc (antisym m' n' x y))]})
 antisymDef :: TopExpr
-antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE (VarE "Lte") [VarE "m", VarE "n"]), ("_", TypeE (VarE "Lte") [VarE "n", VarE "m"])] (TypeE (VarE "Eq") [VarE "Nat", VarE "m", VarE "n"])
+antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE (VarE "Lte") [] [VarE "m", VarE "n"]), ("_", TypeE (VarE "Lte") [] [VarE "n", VarE "m"])] (TypeE (VarE "Eq") [VarE "Nat", VarE "m"] [VarE "n"])
   [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), Pattern "lz" [InaccessiblePat (DataE "zero" [])], Pattern "lz" [InaccessiblePat (DataE "zero" [])]], VarE "refl"),
    ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), Pattern"ls" [PatVar "k", PatVar "l", PatVar "x"], Pattern "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
 
---(data (Vec (A : (Universe 0)) (_ : Nat)) : (Universe 0)
+--(data (Vec {(A : (Universe 0))} {(_ : Nat)}
 --  {[nil  : (Vec A <zero>)]
 --   [cons (n : Nat) (_ : A) (_ : (Vec A n)) : (Vec A <suc n>)]})
 vecDef :: TopExpr
-vecDef = DataDecE "Vec" [("A", (UniverseE 0))] (ArrowE (VarE "Nat") (UniverseE 0))
-  [("nil", (TypeE (VarE "Vec") [(VarE "A"), (VarE "zero")])),
-   ("cons", (PiE "n" (VarE "Nat") (ArrowE (VarE "A") (ArrowE (TypeE (VarE "Vec") [(VarE "A"), (VarE "n")]) (TypeE (VarE "Vec") [(VarE "A"), (DataE "suc" [VarE "n"])])))))]
+vecDef = DataDecE "Vec" [("A", (UniverseE 0))] [("_", VarE "Nat")]
+  [("nil", (TypeE (VarE "Vec") [VarE "A"] [VarE "zero"])),
+   ("cons", (PiE "n" (VarE "Nat") (ArrowE (VarE "A") (ArrowE (TypeE (VarE "Vec") [VarE "A"] [VarE "n"]) (TypeE (VarE "Vec") [VarE "A"] [DataE "suc" [VarE "n"]])))))]
