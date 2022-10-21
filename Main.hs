@@ -50,7 +50,7 @@ runCheckM = runExceptT
 type Name = String
 
 data TopExpr
-  = DataDecE Name [(Name, Expr)] [(Name, Expr)] [(Name, Expr)] -- datatype name, telescope, indices, [(constructor name, type)]
+  = DataDecE Name [(Name, Expr)] [(Name, Expr)] [(Name, [(Name, Expr)], Expr)] -- datatype name, telescope, indices, [(constructor name, args, type)]
   | DefE Name Expr Expr -- name, type, expr
   | DefFunE Name [(Name, Expr)] Expr Expr -- SHOULD DESUGARED: name, types of arguments, type of return value, expr
   | DefCaseE Name [(Name, Expr)] Expr [([Pattern], Expr)] -- SHOULD DESUGARED: name, types of arguments, type of return value, [(patterns, body)]
@@ -72,14 +72,16 @@ data Expr
   | UniverseAlphaE -- Only internal use: Universe for some integer alpha
   | UnitTypeE
   | UnitE
-  | TypeE Expr [Expr] [Expr]
+  | TypeConE Name Telescope Indices
+  | TypeE Name [Expr] [Expr]
+  | DataConE Name Context Telescope Expr
   | DataE Name [Expr]
   | CaseE [Expr] [([Pattern], Expr)]
  deriving Show
 
 data Pattern
   = PatVar Name
-  | Pattern Name [Pattern]
+  | ConsPat Name [Pattern]
   | InaccessiblePat Expr
  deriving Show
 
@@ -89,11 +91,17 @@ type Val = Expr
 type Env = (TEnv, DEnv, CEnv, VEnv)
 type TEnv = [(Name, TVal)] -- Type environment
 type VEnv = [(Name, Val)]  -- Value environment
-type DEnv = [(Name, Telescope, Indices)] -- Datatype enviroment
-type CEnv = [(Name, Telescope, Expr)] -- Constructor enviroment
+type DEnv = [(Name, (Telescope, Indices))] -- Datatype enviroment
+type CEnv = [(Name, (Context, Telescope, Expr))] -- Constructor enviroment
   
+type Context = [(Name, TVal)]
 type Telescope = [(Name, TVal)]
 type Indices = [(Name, TVal)]
+
+data Kind
+  = ValueK
+  | DatatypeK
+  | ConstructorK
 
 initTopTEnv :: [TopExpr] -> TEnv
 initTopTEnv [] = []
@@ -102,12 +110,14 @@ initTopTEnv (_ : rs) = initTopTEnv rs
 
 initTopDEnv :: [TopExpr] -> DEnv
 initTopDEnv [] = []
-initTopDEnv (DataDecE n as is _ : rs) = (n, as, is) : (initTopDEnv rs)
+initTopDEnv (DataDecE n ts is _ : rs) = (n, (ts, is)) : (initTopDEnv rs)
 initTopDEnv (_ : rs) = initTopDEnv rs
 
 initTopCEnv :: [TopExpr] -> CEnv
 initTopCEnv [] = []
-initTopCEnv (DataDecE _ _ _ cs : rs) = cs : (initTopCEnv rs)
+initTopCEnv (DataDecE _ ts _ cs : rs) = (map f cs) ++ (initTopCEnv rs)
+ where
+  f (c, as, t) = (c, (ts, as, t))
 initTopCEnv (_ : rs) = initTopCEnv rs
 
 getFromEnv :: [(Name, a)] -> Name -> CheckM a
@@ -122,7 +132,7 @@ desugarTopExpr :: TopExpr -> TopExpr
 desugarTopExpr (DataDecE n as is cs) =
   let as' = map (\(s, e) -> (s, desugarExpr e)) as
       is' = map (\(s, e) -> (s, desugarExpr e)) is
-      cs' = map (\(s, e) -> (s, desugarExpr e)) cs
+      cs' = map (\(s, ts, e) -> (s, (map (\(s', e') -> (s', desugarExpr e')) ts), desugarExpr e)) cs
   in DataDecE n as' is' cs'
 desugarTopExpr (DefE n t e) =
   let t' = desugarExpr t
@@ -152,7 +162,7 @@ desugarExpr e = e
 
 desugarPattern :: Pattern -> Pattern
 desugarPattern (InaccessiblePat e) = InaccessiblePat (desugarExpr e)
-desugarPattern (Pattern n ps) = Pattern n (map desugarPattern ps)
+desugarPattern (ConsPat n ps) = ConsPat n (map desugarPattern ps)
 desugarPattern p = p
                 
 --- Type checking
@@ -233,6 +243,10 @@ infer _ e@UnitTypeE = do
   return (UniverseE 0, e)
 infer _ e@(UniverseE n) = do
   return (UniverseE (n + 1), e)
+infer _ e@(TypeE n ts is) = do
+  undefined
+infer _ e@(DataE n xs) = do
+  undefined
 infer _ _ = throw (Default "not implemented")
 
 isSubtype :: TEnv -> Expr -> Expr -> CheckM ()
@@ -323,12 +337,7 @@ isEqual gamma (Proj2E s) (Proj2E t) = do
     _ -> throw (Default "")
 
 evalWHNF :: Expr -> CheckM Expr
-evalWHNF (VarE n) = do
-  (kind, v) <- getFromEnv env n
-  case (kind, v) of
-    (DatatypeK, (ts, is)) -> undefined
-    (ConstructorK, (ts, e)) -> undefined
-    (ValueK, e) -> return e
+--evalWHNF (VarE n) = undefined
 evalWHNF (ApplyE e1 e2) = do
   e1' <- evalWHNF e1
   case e1' of
@@ -374,20 +383,34 @@ substitute1 _ _ e = e
 
 substitutePat :: [(Name, Pattern)] -> Pattern -> Pattern
 substitutePat [] p = p
-substitutePat ((x, q) : ms) p = substitutePat ms (substitutePat1 x q p)
+substitutePat ((x, q) : ms) p = substitutePat ms (substitutePat1 (x, q) p)
 
-substitutePat1 = undefined
+substitutePat1 :: (Name, Pattern) -> Pattern -> Pattern
+substitutePat1 (x, q) p@(PatVar y) | x == y = q
+                                   | otherwise = p
+substitutePat1 (x, q) (ConsPat c ps) = ConsPat c (map (substitutePat1 (x, q)) ps)
+substitutePat1 _ p = p
 
 --- Type-checking for inductive patterns
 
-type Context = [(Pattern, TVal)]
 type ContextMapping = ([(Name, Pattern)], Context, Context)
 
-split :: [Pattern] -> Context -> CheckM ContextMapping
-split = undefined
+split :: [Pattern] -> Context -> CheckM (Maybe ContextMapping)
+split ps delta = undefined
+--  match (zip ps delta) (List (Pair PatternM (Pair Something Something)))
+--    [[mc| $hs ++ (consPat $c $qs, ($x, $a)) :: $ts -> do
+--        let (ps1, delta1) = unzip hs
+--        let (ps2, delta2) = unzip ts
+--        undefined
+--        cT <- getType c
+--        flexible (ps1 ++ qs) (delta1 ++ theta)
+--        undefined
+--        return (Just (undefined, undefined, delta))
+--        |],
+--     [mc| _ -> return Nothing|]]
 
 updatePat :: ContextMapping -> [Pattern] -> CheckM [Pattern]
-updatePat (ms, _, delta) ps = updatePat' (map (substitutePat ms) (map (\(q, _) -> q) delta)) ps
+updatePat (ms, _, delta) ps = updatePat' (map (substitutePat ms) (map (\(q, _) -> PatVar q) delta)) ps
 
 updatePat' :: [Pattern] -> [Pattern] -> CheckM [Pattern]
 updatePat' [] [] = return []
@@ -398,19 +421,25 @@ updatePat' (sigma : sigmas) (p : ps) = do
  where
   updatePat1 sigma@(PatVar _) p = return [p]
   updatePat1 (InaccessiblePat _) _ = return []
-  updatePat1 (Pattern c sigmas) (Pattern c' ps) =
+  updatePat1 (ConsPat c sigmas) (ConsPat c' ps) =
     if c == c'
       then updatePat' sigmas ps
       else throw (Default "")
 
 proceed :: [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
 proceed ps (ms, delta, gamma) = do
-  (ms', delta', _) <- split ps delta
+  Just (ms', delta', _) <- split ps delta
   ps' <- updatePat (ms', delta', delta) ps
   return (ps', (ms ++ ms', delta', gamma))
 
 proceedMulti :: [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
-proceedMulti ps sigma = undefined
+proceedMulti ps sigma@(ms, delta, gamma) = do
+  ret <- split ps delta
+  case ret of
+    Nothing -> return (ps, sigma)
+    Just _ -> do
+      (ps', sigma') <- proceed ps sigma
+      proceedMulti ps' sigma'
 
 checkPats :: [Pattern] -> Context -> CheckM ([Pattern], ContextMapping)
 checkPats ps gamma = proceedMulti ps (idContextMapping gamma)
@@ -420,7 +449,7 @@ idContextMapping gamma = ([], gamma, gamma)
 
 flexible :: [Pattern] -> Context -> [Name]
 flexible [] [] = []
-flexible (InaccessiblePat _ : ps) ((PatVar x, _) : delta) = x : flexible ps delta
+flexible (InaccessiblePat _ : ps) ((x, _) : delta) = x : flexible ps delta
 flexible (_ : ps) (_ : delta) = flexible ps delta
 
 unify :: [Name] -> Context -> [Expr] -> [Expr] -> [Expr] -> CheckM ContextMapping
@@ -470,57 +499,57 @@ compDef = DefFunE "comp"
 --   [suc (_ : Nat) : Nat]})
 natDef :: TopExpr
 natDef = DataDecE "Nat" [] []
-  [("zero", (VarE "Nat")),
-   ("suc", (ArrowE (VarE "Nat") (VarE "Nat")))]
+  [("zero", [], VarE "Nat"),
+   ("suc", [("_", VarE "Nat")], VarE "Nat")]
 
 --(data Eq {(A : (Universe 0)) (x : A)} {A}
 --  {[refl  : (Eq A x x)]})
 eqDef :: TopExpr
 eqDef = DataDecE "Eq" [("A", UniverseE 0), ("x", VarE "A")] [("_", VarE "A")]
-  [("refl", TypeE (VarE "Eq") [VarE "A", VarE "x"] [VarE "x"])]
+  [("refl", [], TypeE "Eq" [VarE "A", VarE "x"] [VarE "x"])]
 
 --(def (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
 --  {[[_ _ _ <refl>] <refl>]})
 congDef :: TopExpr
-congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE (VarE "Eq") [VarE "A", VarE "x"] [VarE "y"])] (TypeE (VarE "Eq") [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
-  [([PatVar "f", Pattern "refl" []], VarE "refl")]
+congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
+  [([PatVar "f", ConsPat "refl" []], VarE "refl")]
 
 --(define (plus (_ : Nat) (_ : Nat)) : Nat
 --  {[[<zero> $n] n]
 --   [[<suc $m> $n] <suc (plus m n)>]})
 plusDef :: TopExpr
 plusDef = DefCaseE "plus" [("_", VarE "Nat"), ("_", VarE "Nat")] (VarE "Nat")
-  [([Pattern "zero" [], PatVar "n"], VarE "n"),
-   ([Pattern "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
+  [([ConsPat "zero" [], PatVar "n"], VarE "n"),
+   ([ConsPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
 
 --(def (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
 --   [<suc $m> (cong suc (plusZero m))]})
 plusZeroDef :: TopExpr
-plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE (VarE "Eq") [VarE "Nat", ApplyMultiE (VarE "plus") [(VarE "n"), (VarE "zero")]] [VarE "n"])
-  [([Pattern "zero" []], VarE "refl"),
-   ([Pattern "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
+plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE "Eq" [VarE "Nat", ApplyMultiE (VarE "plus") [(VarE "n"), (VarE "zero")]] [VarE "n"])
+  [([ConsPat "zero" []], VarE "refl"),
+   ([ConsPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
 
 --(data Lte {} {Nat Nat}
 --  {[lz (y : Nat) : (Lte <zero> y)]
 --   [ls (x : Nat) (y : Nat) (_ : (Lte x y)) : (Lte <suc x> <suc y>)]})
 lteDef :: TopExpr
 lteDef = DataDecE "Lte" [] [("_", VarE "Nat"), ("_", VarE "Nat")]
-  [("lz", PiE "n" (VarE "Nat") (TypeE (VarE "Lte") [] [VarE "zero", VarE "n"])),
-   ("ls", PiE "m" (VarE "Nat") (PiE "n" (VarE "Nat") (ArrowE (TypeE (VarE "Lte") [] [VarE "m", VarE "n"]) (TypeE (VarE "Lte") [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))))]
+  [("lz", [("n", VarE "Nat")], TypeE "Lte" [] [VarE "zero", VarE "n"]),
+   ("ls", [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE "Lte" [] [VarE "m", VarE "n"])], (TypeE "Lte" [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))]
 
 --(def (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
 --  {[[#<zero> #<zero> <lz #<zero>> <lz #<zero>>] <refl>]
 --   [[#<suc m'> #<suc n'> <ls $m' $n' $x> <ls #n' #m' $y>] (cong suc (antisym m' n' x y))]})
 antisymDef :: TopExpr
-antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE (VarE "Lte") [] [VarE "m", VarE "n"]), ("_", TypeE (VarE "Lte") [] [VarE "n", VarE "m"])] (TypeE (VarE "Eq") [VarE "Nat", VarE "m"] [VarE "n"])
-  [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), Pattern "lz" [InaccessiblePat (DataE "zero" [])], Pattern "lz" [InaccessiblePat (DataE "zero" [])]], VarE "refl"),
-   ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), Pattern"ls" [PatVar "k", PatVar "l", PatVar "x"], Pattern "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
+antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [VarE "Nat", VarE "m"] [VarE "n"])
+  [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), ConsPat "lz" [InaccessiblePat (DataE "zero" [])], ConsPat "lz" [InaccessiblePat (DataE "zero" [])]], VarE "refl"),
+   ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), ConsPat"ls" [PatVar "k", PatVar "l", PatVar "x"], ConsPat "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
 
 --(data (Vec {(A : (Universe 0))} {(_ : Nat)}
 --  {[nil  : (Vec A <zero>)]
 --   [cons (n : Nat) (_ : A) (_ : (Vec A n)) : (Vec A <suc n>)]})
 vecDef :: TopExpr
 vecDef = DataDecE "Vec" [("A", (UniverseE 0))] [("_", VarE "Nat")]
-  [("nil", (TypeE (VarE "Vec") [VarE "A"] [VarE "zero"])),
-   ("cons", (PiE "n" (VarE "Nat") (ArrowE (VarE "A") (ArrowE (TypeE (VarE "Vec") [VarE "A"] [VarE "n"]) (TypeE (VarE "Vec") [VarE "A"] [DataE "suc" [VarE "n"]])))))]
+  [("nil", [], (TypeE "Vec" [VarE "A"] [VarE "zero"])),
+   ("cons", [("n", VarE "Nat"), ("_", VarE "A"), ("_", TypeE "Vec" [VarE "A"] [VarE "n"])], (TypeE "Vec" [VarE "A"] [DataE "suc" [VarE "n"]]))]
