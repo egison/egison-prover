@@ -12,7 +12,10 @@ import Control.Egison hiding (Pattern)
 main :: IO ()
 main = do
   let topExprs = map desugarTopExpr [idDef, compDef]
-  let gamma = initTopTEnv topExprs
+  let gammaT = initTopTEnv topExprs
+  let gammaD = initTopDEnv topExprs
+  let gammaC = initTopCEnv topExprs
+  let gamma = (gammaT, gammaD, gammaC)
   ret <- runCheckM (checkTopExpr gamma (desugarTopExpr idDef))
   case ret of
     Left err -> print err
@@ -72,9 +75,7 @@ data Expr
   | UniverseAlphaE -- Only internal use: Universe for some integer alpha
   | UnitTypeE
   | UnitE
-  | TypeConE Name Telescope Indices
   | TypeE Name [Expr] [Expr]
-  | DataConE Name Context Telescope Expr
   | DataE Name [Expr]
   | CaseE [Expr] [([Pattern], Expr)]
  deriving Show
@@ -88,11 +89,10 @@ data Pattern
 type TVal = Expr
 type Val = Expr
 
-type Env = (TEnv, DEnv, CEnv, VEnv)
+type Env = (TEnv, DEnv, CEnv)
 type TEnv = [(Name, TVal)] -- Type environment
-type VEnv = [(Name, Val)]  -- Value environment
 type DEnv = [(Name, (Telescope, Indices))] -- Datatype enviroment
-type CEnv = [(Name, (Context, Telescope, Expr))] -- Constructor enviroment
+type CEnv = [(Name, (Telescope, Telescope, TVal))] -- Constructor enviroment
   
 type Context = [(Name, TVal)]
 type Telescope = [(Name, TVal)]
@@ -126,6 +126,18 @@ getFromEnv gamma x =
     [[mc| _ ++ (#x, $t) : _ -> return t |],
      [mc| _ -> throw (UnboundVariable x) |]]
 
+getFromTEnv :: Env -> Name -> CheckM TVal
+getFromTEnv (tenv, _, _) x = getFromEnv tenv x
+     
+getFromDEnv :: Env -> Name -> CheckM (Telescope, Indices)
+getFromDEnv (_, denv, _) x = getFromEnv denv x
+     
+getFromCEnv :: Env -> Name -> CheckM (Telescope, Telescope, TVal)
+getFromCEnv (_, _, cenv) x = getFromEnv cenv x
+
+addToTEnv :: Env -> Name -> TVal -> Env
+addToTEnv (tenv, denv, cenv) x a = (tenv ++ [(x, a)], denv, cenv)
+                             
 --- Desugar
 
 desugarTopExpr :: TopExpr -> TopExpr
@@ -167,17 +179,17 @@ desugarPattern p = p
                 
 --- Type checking
 
-checkTopExpr :: TEnv -> TopExpr -> CheckM TopExpr
+checkTopExpr :: Env -> TopExpr -> CheckM TopExpr
 checkTopExpr gamma (DefE n t e) = do
   e' <- check gamma e t
   return (DefE n t e')
 
-check :: TEnv -> Expr -> Expr -> CheckM Expr
+check :: Env -> Expr -> Expr -> CheckM Expr
 check gamma (LambdaE x e) a = do
   a' <- evalWHNF a
   case a' of
     PiE y b c -> do
-      e' <- check (gamma ++ [(x, b)]) e c
+      e' <- check (addToTEnv gamma x b) e c
       return (LambdaE x e')
     _ -> throw (TypeDoesNotMatch (LambdaE x e) a')
 check gamma (PairE e1 e2) a = do
@@ -193,9 +205,9 @@ check gamma e a = do
   isSubtype gamma a b
   return t
 
-infer :: TEnv -> Expr -> CheckM (Expr, Expr)
+infer :: Env -> Expr -> CheckM (Expr, Expr)
 infer gamma e@(VarE x) = do
-  a <- getFromEnv gamma x
+  a <- getFromTEnv gamma x
   return (a, e)
 infer gamma (ApplyE e1 e2) = do
   (a, s) <- infer gamma e1
@@ -221,7 +233,7 @@ infer gamma (Proj2E e) = do
     _ -> throw (ShouldBe "pair" e)
 infer gamma (PiE x e1 e2) = do
   (c1, a) <- infer gamma e1
-  (c2, b) <- infer (gamma ++ [(x, a)]) e2
+  (c2, b) <- infer (addToTEnv gamma x a) e2
   c1' <- evalWHNF c1
   c2' <- evalWHNF c2
   case (c1', c2') of
@@ -230,7 +242,7 @@ infer gamma (PiE x e1 e2) = do
     _ -> throw (Default "")
 infer gamma (SigmaE x e1 e2) = do
   (c1, a) <- infer gamma e1
-  (c2, b) <- infer (gamma ++ [(x, a)]) e2
+  (c2, b) <- infer (addToTEnv gamma x a) e2
   c1' <- evalWHNF c1
   c2' <- evalWHNF c2
   case (c1', c2') of
@@ -249,53 +261,53 @@ infer _ e@(DataE n xs) = do
   undefined
 infer _ _ = throw (Default "not implemented")
 
-isSubtype :: TEnv -> Expr -> Expr -> CheckM ()
+isSubtype :: Env -> Expr -> Expr -> CheckM ()
 isSubtype gamma a b = do
   a' <- evalWHNF a
   b' <- evalWHNF b
   isSubtype' gamma a' b'
 
-isSubtype' :: TEnv -> Expr -> Expr -> CheckM ()
+isSubtype' :: Env -> Expr -> Expr -> CheckM ()
 isSubtype' _ (UniverseE i) (UniverseE j) =
   if i + 1 == j then return () else throw (Default "")
 isSubtype' gamma (PiE x a1 b1) (PiE y a2 b2) =
   if x == y
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
-      isSubtype (gamma ++ [(x, a1)]) b1 b2
+      isSubtype (addToTEnv gamma x a1) b1 b2
     else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
 isSubtype' gamma (SigmaE x a1 b1) (SigmaE y a2 b2) =
   if x == y
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
-      isSubtype (gamma ++ [(x, a1)]) b1 b2
+      isSubtype (addToTEnv gamma x a1) b1 b2
     else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
 isSubtype' gamma a b = isConvertible' gamma a b UniverseAlphaE
 
-isConvertible :: TEnv -> Expr -> Expr -> Expr -> CheckM ()
+isConvertible :: Env -> Expr -> Expr -> Expr -> CheckM ()
 isConvertible gamma s t a = do
   s' <- evalWHNF s
   t' <- evalWHNF t
   a' <- evalWHNF a
   isConvertible' gamma s' t' a'
 
-isConvertible' :: TEnv -> Expr -> Expr -> Expr -> CheckM ()
+isConvertible' :: Env -> Expr -> Expr -> Expr -> CheckM ()
 isConvertible' gamma (UniverseE i) (UniverseE j) UniverseAlphaE =
   if i == j then return () else throw (NotConvertible (UniverseE i) (UniverseE j))
 isConvertible' gamma (PiE x a1 b1) (PiE y a2 b2) UniverseAlphaE =
   if x == y
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
-      isConvertible (gamma ++ [(x, a1)]) b1 b2 UniverseAlphaE
+      isConvertible (addToTEnv gamma x a1) b1 b2 UniverseAlphaE
     else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
 isConvertible' gamma (SigmaE x a1 b1) (SigmaE y a2 b2) UniverseAlphaE =
   if x == y
     then do
       isConvertible gamma a1 a2 UniverseAlphaE
-      isConvertible (gamma ++ [(x, a1)]) b1 b2 UniverseAlphaE
+      isConvertible (addToTEnv gamma x a1) b1 b2 UniverseAlphaE
     else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
 isConvertible' gamma s t UnitTypeE = return ()
-isConvertible' gamma s t (PiE x a b) = isConvertible (gamma ++ [(x, a)]) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
+isConvertible' gamma s t (PiE x a b) = isConvertible (addToTEnv gamma x a) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
 isConvertible' gamma s t (SigmaE x a b) = do
   isConvertible gamma (Proj1E s) (Proj1E t) a
   isConvertible gamma (Proj2E s) (Proj2E t) (substitute1 x (Proj1E s) b)
@@ -306,11 +318,11 @@ isConvertible' gamma s t a = do
       return ()
     else throw (Default "")
 
-isEqual :: TEnv -> Expr -> Expr -> CheckM Expr
+isEqual :: Env -> Expr -> Expr -> CheckM Expr
 isEqual gamma (VarE x) (VarE y) =
   if x == y
     then do
-      a <- getFromEnv gamma x
+      a <- getFromTEnv gamma x
       return a
     else throw (Default "")
 isEqual gamma (ApplyE s1 t1) (ApplyE s2 t2) = do
@@ -341,7 +353,7 @@ evalWHNF :: Expr -> CheckM Expr
 evalWHNF (ApplyE e1 e2) = do
   e1' <- evalWHNF e1
   case e1' of
-    LambdaE x b -> return (substitute1 x e2 b) 
+    LambdaE x b -> return (substitute1 x e2 b)
     _ -> return (ApplyE e1' e2)
 evalWHNF (Proj1E e) = do
   e' <- evalWHNF e
@@ -499,8 +511,8 @@ compDef = DefFunE "comp"
 --   [suc (_ : Nat) : Nat]})
 natDef :: TopExpr
 natDef = DataDecE "Nat" [] []
-  [("zero", [], VarE "Nat"),
-   ("suc", [("_", VarE "Nat")], VarE "Nat")]
+  [("zero", [], TypeE "Nat" [] []),
+   ("suc", [("_", TypeE "Nat" [] [])], TypeE "Nat" [] [])]
 
 --(data Eq {(A : (Universe 0)) (x : A)} {A}
 --  {[refl  : (Eq A x x)]})
@@ -518,7 +530,7 @@ congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"),
 --  {[[<zero> $n] n]
 --   [[<suc $m> $n] <suc (plus m n)>]})
 plusDef :: TopExpr
-plusDef = DefCaseE "plus" [("_", VarE "Nat"), ("_", VarE "Nat")] (VarE "Nat")
+plusDef = DefCaseE "plus" [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])] (TypeE "Nat" [] [])
   [([ConsPat "zero" [], PatVar "n"], VarE "n"),
    ([ConsPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
 
@@ -526,7 +538,7 @@ plusDef = DefCaseE "plus" [("_", VarE "Nat"), ("_", VarE "Nat")] (VarE "Nat")
 --  {[<zero> <refl>]
 --   [<suc $m> (cong suc (plusZero m))]})
 plusZeroDef :: TopExpr
-plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE "Eq" [VarE "Nat", ApplyMultiE (VarE "plus") [(VarE "n"), (VarE "zero")]] [VarE "n"])
+plusZeroDef = DefCaseE "plusZero" [("n", TypeE "Nat" [] [])] (TypeE "Eq" [TypeE "Nat" [] [], ApplyMultiE (VarE "plus") [(VarE "n"), (DataE "zero" [])]] [VarE "n"])
   [([ConsPat "zero" []], VarE "refl"),
    ([ConsPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
 
@@ -534,15 +546,15 @@ plusZeroDef = DefCaseE "plusZero" [("n", VarE "Nat")] (TypeE "Eq" [VarE "Nat", A
 --  {[lz (y : Nat) : (Lte <zero> y)]
 --   [ls (x : Nat) (y : Nat) (_ : (Lte x y)) : (Lte <suc x> <suc y>)]})
 lteDef :: TopExpr
-lteDef = DataDecE "Lte" [] [("_", VarE "Nat"), ("_", VarE "Nat")]
-  [("lz", [("n", VarE "Nat")], TypeE "Lte" [] [VarE "zero", VarE "n"]),
-   ("ls", [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE "Lte" [] [VarE "m", VarE "n"])], (TypeE "Lte" [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))]
+lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
+  [("lz", [("n", TypeE "Nat" [] [])], TypeE "Lte" [] [DataE "zero" [], VarE "n"]),
+   ("ls", [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"])], (TypeE "Lte" [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))]
 
 --(def (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
 --  {[[#<zero> #<zero> <lz #<zero>> <lz #<zero>>] <refl>]
 --   [[#<suc m'> #<suc n'> <ls $m' $n' $x> <ls #n' #m' $y>] (cong suc (antisym m' n' x y))]})
 antisymDef :: TopExpr
-antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [VarE "Nat", VarE "m"] [VarE "n"])
+antisymDef = DefCaseE "antisym" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
   [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), ConsPat "lz" [InaccessiblePat (DataE "zero" [])], ConsPat "lz" [InaccessiblePat (DataE "zero" [])]], VarE "refl"),
    ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), ConsPat"ls" [PatVar "k", PatVar "l", PatVar "x"], ConsPat "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
 
@@ -550,6 +562,6 @@ antisymDef = DefCaseE "antisym" [("m", VarE "Nat"), ("n", VarE "Nat"), ("_", Typ
 --  {[nil  : (Vec A <zero>)]
 --   [cons (n : Nat) (_ : A) (_ : (Vec A n)) : (Vec A <suc n>)]})
 vecDef :: TopExpr
-vecDef = DataDecE "Vec" [("A", (UniverseE 0))] [("_", VarE "Nat")]
-  [("nil", [], (TypeE "Vec" [VarE "A"] [VarE "zero"])),
-   ("cons", [("n", VarE "Nat"), ("_", VarE "A"), ("_", TypeE "Vec" [VarE "A"] [VarE "n"])], (TypeE "Vec" [VarE "A"] [DataE "suc" [VarE "n"]]))]
+vecDef = DataDecE "Vec" [("A", (UniverseE 0))] [("_", TypeE "Nat" [] [])]
+  [("nil", [], (TypeE "Vec" [VarE "A"] [DataE "zero" []])),
+   ("cons", [("n", TypeE "Nat" [] []), ("_", VarE "A"), ("_", TypeE "Vec" [VarE "A"] [VarE "n"])], (TypeE "Vec" [VarE "A"] [DataE "suc" [VarE "n"]]))]
