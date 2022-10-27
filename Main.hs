@@ -11,7 +11,7 @@ import Control.Egison hiding (Pattern)
 
 main :: IO ()
 main = do
-  let topExprs = map desugarTopExpr [idDef, compDef]
+  let topExprs = map desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef]
   let gammaT = initTopTEnv topExprs
   let gammaD = initTopDEnv topExprs
   let gammaC = initTopCEnv topExprs
@@ -21,6 +21,18 @@ main = do
     Left err -> print err
     Right expr -> print (show expr)
   ret <- runCheckM (checkTopExpr gamma (desugarTopExpr compDef))
+  case ret of
+    Left err -> print err
+    Right expr -> print (show expr)
+  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr zeroDef))
+  case ret of
+    Left err -> print err
+    Right expr -> print (show expr)
+  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr oneDef))
+  case ret of
+    Left err -> print err
+    Right expr -> print (show expr)
+  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr reflDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
@@ -171,6 +183,7 @@ desugarExpr (Proj1E e1) = Proj1E (desugarExpr e1)
 desugarExpr (Proj2E e1) = Proj2E (desugarExpr e1)
 desugarExpr (CaseE ts cs) = CaseE (map desugarExpr ts) (map (\(ps, e) -> (map desugarPattern ps, desugarExpr e)) cs)
 desugarExpr e = e
+-- TODO: DataE and TypeE
 
 desugarPattern :: Pattern -> Pattern
 desugarPattern (InaccessiblePat e) = InaccessiblePat (desugarExpr e)
@@ -188,22 +201,39 @@ check :: Env -> Expr -> Expr -> CheckM Expr
 check gamma (LambdaE x e) a = do
   a' <- evalWHNF a
   case a' of
-    PiE y b c -> do
+    PiE y b c | x == y -> do
       e' <- check (addToTEnv gamma x b) e c
       return (LambdaE x e')
     _ -> throw (TypeDoesNotMatch (LambdaE x e) a')
-check gamma (PairE e1 e2) a = do
+check gamma e@(PairE e1 e2) a = do
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
       s <- check gamma e1 b
       t <- check gamma e2 (substitute1 x s c)
       return (PairE s t)
-    _ -> throw (TypeDoesNotMatch (PairE e1 e2) a')
+    _ -> throw (TypeDoesNotMatch e a')
+check gamma e@(DataE c xs) a = do
+  a' <- evalWHNF a
+  case a' of
+    TypeE n ts _ -> do
+      (tts, xts, b) <- getFromCEnv gamma c
+      (gamma', ts') <- checkTelescope gamma ts tts
+      (gamma'', xs') <- checkTelescope gamma' xs xts
+      isSubtype gamma'' (substitute ((zip (map fst tts) ts') ++ (zip (map fst xts) xs')) b) a'
+      return (DataE c xs')
+    _ -> throw (TypeDoesNotMatch e a')
 check gamma e a = do
   (b, t) <- infer gamma e
   isSubtype gamma a b
   return t
+
+checkTelescope :: Env -> [Expr] -> Telescope -> CheckM (Env, [Expr])
+checkTelescope gamma [] [] = return (gamma, [])
+checkTelescope gamma (x : xs) ((n, xt) : xts) = do
+  x' <- check gamma x xt
+  (gamma', xs') <- checkTelescope (addToTEnv gamma n xt) xs (map (\(n2, xt2) -> (n2, substitute1 n x' xt2)) xts)
+  return (gamma', x' : xs')
 
 infer :: Env -> Expr -> CheckM (Expr, Expr)
 infer gamma e@(VarE x) = do
@@ -239,7 +269,7 @@ infer gamma (PiE x e1 e2) = do
   case (c1', c2') of
     (UniverseE i, UniverseE j) -> do
       return (UniverseE (max i j), PiE x a b)
-    _ -> throw (Default "")
+    _ -> throw (Default "infer Pi")
 infer gamma (SigmaE x e1 e2) = do
   (c1, a) <- infer gamma e1
   (c2, b) <- infer (addToTEnv gamma x a) e2
@@ -248,18 +278,16 @@ infer gamma (SigmaE x e1 e2) = do
   case (c1', c2') of
     (UniverseE i, UniverseE j) -> do
       return (UniverseE (max i j), SigmaE x a b)
-    _ -> throw (Default "")
+    _ -> throw (Default "infer Sigma")
 infer _ e@UnitE = do
   return (UnitTypeE, e)
 infer _ e@UnitTypeE = do
   return (UniverseE 0, e)
 infer _ e@(UniverseE n) = do
   return (UniverseE (n + 1), e)
-infer _ e@(TypeE n ts is) = do
-  undefined
-infer _ e@(DataE n xs) = do
-  undefined
-infer _ _ = throw (Default "not implemented")
+infer gamma e@(TypeE _ _ _) = do
+  return (UniverseE 0, e)
+infer _ _ = throw (Default "infer not implemented")
 
 isSubtype :: Env -> Expr -> Expr -> CheckM ()
 isSubtype gamma a b = do
@@ -268,8 +296,7 @@ isSubtype gamma a b = do
   isSubtype' gamma a' b'
 
 isSubtype' :: Env -> Expr -> Expr -> CheckM ()
-isSubtype' _ (UniverseE i) (UniverseE j) =
-  if i + 1 == j then return () else throw (Default "")
+isSubtype' _ (UniverseE i) (UniverseE j) | i + 1 == j = return ()
 isSubtype' gamma (PiE x a1 b1) (PiE y a2 b2) =
   if x == y
     then do
@@ -283,6 +310,12 @@ isSubtype' gamma (SigmaE x a1 b1) (SigmaE y a2 b2) =
       isSubtype (addToTEnv gamma x a1) b1 b2
     else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
 isSubtype' gamma a b = isConvertible' gamma a b UniverseAlphaE
+
+areConvertible :: Env -> [Expr] -> [Expr] -> Telescope -> CheckM ()
+areConvertible _ [] [] [] = return ()
+areConvertible gamma (x:xs) (y:ys) ((n, xt):xts) = do
+  isConvertible gamma x y xt
+  areConvertible (addToTEnv gamma n x) xs ys (map (\(n2, a2) -> (n2, substitute1 n x a2)) xts)
 
 isConvertible :: Env -> Expr -> Expr -> Expr -> CheckM ()
 isConvertible gamma s t a = do
@@ -311,12 +344,18 @@ isConvertible' gamma s t (PiE x a b) = isConvertible (addToTEnv gamma x a) (Appl
 isConvertible' gamma s t (SigmaE x a b) = do
   isConvertible gamma (Proj1E s) (Proj1E t) a
   isConvertible gamma (Proj2E s) (Proj2E t) (substitute1 x (Proj1E s) b)
+isConvertible' gamma (DataE n1 xs1) (DataE n2 xs2) (TypeE _ ts _) =
+  if n1 == n2
+    then do
+      (tts, xts, _) <- getFromCEnv gamma n1
+      areConvertible gamma xs1 xs2 (substituteWithTelescope tts ts xts)
+    else throw (NotConvertible (DataE n1 xs1) (DataE n2 xs2))
 isConvertible' gamma s t a = do
   if isNeutral s && isNeutral t
     then do
       _ <- isEqual gamma s t
       return ()
-    else throw (Default "")
+    else throw (Default "isConvertible' else")
 
 isEqual :: Env -> Expr -> Expr -> CheckM Expr
 isEqual gamma (VarE x) (VarE y) =
@@ -324,7 +363,7 @@ isEqual gamma (VarE x) (VarE y) =
     then do
       a <- getFromTEnv gamma x
       return a
-    else throw (Default "")
+    else throw (Default "isEqual var")
 isEqual gamma (ApplyE s1 t1) (ApplyE s2 t2) = do
   a <- isEqual gamma s1 s2
   a' <- evalWHNF a
@@ -332,21 +371,29 @@ isEqual gamma (ApplyE s1 t1) (ApplyE s2 t2) = do
     PiE x b c -> do
       isConvertible gamma t1 t2 b
       return (substitute1 x t1 c)
-    _ -> throw (Default "")
+    _ -> throw (Default "isEqual apply")
 isEqual gamma (Proj1E s) (Proj1E t) = do
   a <- isEqual gamma s t
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
       return b
-    _ -> throw (Default "")
+    _ -> throw (Default "isEqual proj1")
 isEqual gamma (Proj2E s) (Proj2E t) = do
   a <- isEqual gamma s t
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
       return (substitute1 x (Proj1E s) c)
-    _ -> throw (Default "")
+    _ -> throw (Default "isEqual proj2")
+isEqual gamma (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) =
+  if n1 == n2
+    then do
+      (tts, its) <- getFromDEnv gamma n1
+      areConvertible gamma (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
+      return (UniverseE 0)
+    else throw (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
+isEqual _ _ _ = throw (Default "isEqual not implemented")
 
 evalWHNF :: Expr -> CheckM Expr
 --evalWHNF (VarE n) = undefined
@@ -372,6 +419,8 @@ isNeutral (VarE _) = True
 isNeutral (ApplyE e _) = isNeutral e
 isNeutral (Proj1E e) = isNeutral e
 isNeutral (Proj2E e) = isNeutral e
+isNeutral (TypeE _ _ _) = True
+isNeutral (DataE _ _) = True
 isNeutral _ = False
 
 substitute :: [(Name, Expr)] -> Expr -> Expr
@@ -391,7 +440,16 @@ substitute1 x v e@(SigmaE y e1 e2) | x == y    = e
 substitute1 x v (PairE e1 e2) = PairE (substitute1 x v e1) (substitute1 x v e2)
 substitute1 x v (Proj1E e1) = Proj1E (substitute1 x v e1)
 substitute1 x v (Proj2E e1) = Proj2E (substitute1 x v e1)
+substitute1 x v (TypeE n ts is) = TypeE n (map (substitute1 x v) ts) (map (substitute1 x v) is)
+substitute1 x v (DataE n xs) = DataE n (map (substitute1 x v) xs)
 substitute1 _ _ e = e
+
+substituteWithTelescope :: Telescope -> [TVal] -> Telescope -> Telescope
+substituteWithTelescope [] [] rs = rs
+substituteWithTelescope ((n, _):ts) (x:xs) rs =
+  let ts' = map (\(n2, t) -> (n2, substitute1 n x t)) ts
+      rs' = map (\(n2, t) -> (n2, substitute1 n x t)) rs in
+    substituteWithTelescope ts' xs rs'
 
 substitutePat :: [(Name, Pattern)] -> Pattern -> Pattern
 substitutePat [] p = p
@@ -514,13 +572,32 @@ natDef = DataDecE "Nat" [] []
   [("zero", [], TypeE "Nat" [] []),
    ("suc", [("_", TypeE "Nat" [] [])], TypeE "Nat" [] [])]
 
+-- (define z : Nat <zero>)
+zeroDef :: TopExpr
+zeroDef = DefE "z"
+  (TypeE "Nat" [] [])
+  (DataE "zero" [])
+
+-- (define one : Nat <suc <zero>>)
+oneDef :: TopExpr
+oneDef = DefE "one"
+  (TypeE "Nat" [] [])
+  (DataE "suc" [DataE "zero" []])
+
 --(data Eq {(A : (Universe 0)) (x : A)} {A}
 --  {[refl  : (Eq A x x)]})
 eqDef :: TopExpr
 eqDef = DataDecE "Eq" [("A", UniverseE 0), ("x", VarE "A")] [("_", VarE "A")]
   [("refl", [], TypeE "Eq" [VarE "A", VarE "x"] [VarE "x"])]
 
---(def (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
+-- (define r : <Eq {Nat <zero>} {<zero>}>
+--   <refl>)
+reflDef :: TopExpr
+reflDef = DefE "r"
+  (TypeE "Eq" [TypeE "Nat" [] [], DataE "zero" []] [DataE "zero" []])
+  (DataE "refl" [])
+
+--(define (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
 --  {[[_ _ _ <refl>] <refl>]})
 congDef :: TopExpr
 congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
@@ -534,7 +611,7 @@ plusDef = DefCaseE "plus" [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])] (
   [([ConsPat "zero" [], PatVar "n"], VarE "n"),
    ([ConsPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
 
---(def (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
+--(define (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
 --   [<suc $m> (cong suc (plusZero m))]})
 plusZeroDef :: TopExpr
@@ -550,7 +627,7 @@ lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
   [("lz", [("n", TypeE "Nat" [] [])], TypeE "Lte" [] [DataE "zero" [], VarE "n"]),
    ("ls", [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"])], (TypeE "Lte" [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))]
 
---(def (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
+--(define (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
 --  {[[#<zero> #<zero> <lz #<zero>> <lz #<zero>>] <refl>]
 --   [[#<suc m'> #<suc n'> <ls $m' $n' $x> <ls #n' #m' $y>] (cong suc (antisym m' n' x y))]})
 antisymDef :: TopExpr
