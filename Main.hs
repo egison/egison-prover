@@ -11,7 +11,7 @@ import Control.Egison hiding (Pattern)
 
 main :: IO ()
 main = do
-  let topExprs = map desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef]
+  let topExprs = map desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef]
   let gammaT = initTopTEnv topExprs
   let gammaD = initTopDEnv topExprs
   let gammaC = initTopCEnv topExprs
@@ -36,6 +36,12 @@ main = do
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
+--  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr iReflDef))
+--  case ret of
+--    Left err -> print err
+--    Right expr -> print (show expr)
+  putStrLn (show (desugarTopExpr plusDef))
+  putStrLn "end"
   
 --- Monad
 
@@ -561,7 +567,7 @@ compDef = DefFunE "comp"
   (ApplyE (VarE "f") (ApplyE (VarE "g") (VarE "x")))
 
 ---
---- Sample programs with pattern matching
+--- Sample programs with inductive data
 ---
 
 --(data Nat {} {}
@@ -597,19 +603,30 @@ reflDef = DefE "r"
   (TypeE "Eq" [TypeE "Nat" [] [], DataE "zero" []] [DataE "zero" []])
   (DataE "refl" [])
 
+-- (define ir : <Eq {Nat <zero>} {<suc <zero>>}>
+--   <refl>)
+iReflDef :: TopExpr
+iReflDef = DefE "ir"
+  (TypeE "Eq" [TypeE "Nat" [] [], DataE "zero" []] [DataE "suc" [DataE "zero" []]])
+  (DataE "refl" [])
+
+---
+--- Sample programs with pattern matching
+---
+
+--(define (plus (x : Nat) (y : Nat)) : Nat
+--  {[[<zero> $n] n]
+--   [[<suc $m> $n] <suc (plus m n)>]})
+plusDef :: TopExpr
+plusDef = DefCaseE "plus" [("x", TypeE "Nat" [] []), ("y", TypeE "Nat" [] [])] (TypeE "Nat" [] [])
+  [([ConsPat "zero" [], PatVar "n"], VarE "n"),
+   ([ConsPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
+
 --(define (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
 --  {[[_ _ _ <refl>] <refl>]})
 congDef :: TopExpr
 congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
   [([PatVar "f", ConsPat "refl" []], VarE "refl")]
-
---(define (plus (_ : Nat) (_ : Nat)) : Nat
---  {[[<zero> $n] n]
---   [[<suc $m> $n] <suc (plus m n)>]})
-plusDef :: TopExpr
-plusDef = DefCaseE "plus" [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])] (TypeE "Nat" [] [])
-  [([ConsPat "zero" [], PatVar "n"], VarE "n"),
-   ([ConsPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
 
 --(define (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
