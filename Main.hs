@@ -8,35 +8,36 @@ module Main where
 import Control.Exception.Safe
 import Control.Monad.Except
 import Control.Egison hiding (Pattern)
+import qualified Control.Egison as Egison
 
 main :: IO ()
 main = do
   let topExprs = map desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef]
-  let gammaT = initTopTEnv topExprs
-  let gammaD = initTopDEnv topExprs
-  let gammaC = initTopCEnv topExprs
-  let gamma = (gammaT, gammaD, gammaC)
-  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr idDef))
+  let envT = initTopTEnv topExprs
+  let envD = initTopDEnv topExprs
+  let envC = initTopCEnv topExprs
+  let env = (envT, envD, envC)
+  ret <- runCheckM (checkTopExpr env (desugarTopExpr idDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
-  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr compDef))
+  ret <- runCheckM (checkTopExpr env (desugarTopExpr compDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
-  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr zeroDef))
+  ret <- runCheckM (checkTopExpr env (desugarTopExpr zeroDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
-  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr oneDef))
+  ret <- runCheckM (checkTopExpr env (desugarTopExpr oneDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
-  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr reflDef))
+  ret <- runCheckM (checkTopExpr env (desugarTopExpr reflDef))
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
---  ret <- runCheckM (checkTopExpr gamma (desugarTopExpr iReflDef))
+--  ret <- runCheckM (checkTopExpr env (desugarTopExpr iReflDef))
 --  case ret of
 --    Left err -> print err
 --    Right expr -> print (show expr)
@@ -104,6 +105,15 @@ data Pattern
   | InaccessiblePat Expr
  deriving Show
 
+data PatternM = PatternM
+instance Matcher PatternM Pattern
+
+consPat :: Egison.Pattern (PP Name, PP [Pattern]) PatternM Pattern (Name, [Pattern])
+consPat _ _ (ConsPat n ps) = pure (n, ps)
+
+consPatM :: m -> t -> (Something, List PatternM)
+consPatM _ _ = (Something, (List PatternM))
+
 type TVal = Expr
 type Val = Expr
 
@@ -139,8 +149,8 @@ initTopCEnv (DataDecE _ ts _ cs : rs) = (map f cs) ++ (initTopCEnv rs)
 initTopCEnv (_ : rs) = initTopCEnv rs
 
 getFromEnv :: [(Name, a)] -> Name -> CheckM a
-getFromEnv gamma x =
-  match dfs gamma (List (Pair Eql Something))
+getFromEnv env x =
+  match dfs env (List (Pair Eql Something))
     [[mc| _ ++ (#x, $t) : _ -> return t |],
      [mc| _ -> throw (UnboundVariable x) |]]
 
@@ -153,8 +163,11 @@ getFromDEnv (_, denv, _) x = getFromEnv denv x
 getFromCEnv :: Env -> Name -> CheckM (Telescope, Telescope, TVal)
 getFromCEnv (_, _, cenv) x = getFromEnv cenv x
 
-addToTEnv :: Env -> Name -> TVal -> Env
-addToTEnv (tenv, denv, cenv) x a = (tenv ++ [(x, a)], denv, cenv)
+addToTEnv1 :: Env -> Name -> TVal -> Env
+addToTEnv1 (tenv, denv, cenv) x a = (tenv ++ [(x, a)], denv, cenv)
+                             
+addToTEnv :: Env -> Context -> Env
+addToTEnv (tenv, denv, cenv) cs = (tenv ++ cs, denv, cenv)
                              
 --- Desugar
 
@@ -199,86 +212,86 @@ desugarPattern p = p
 --- Type checking
 
 checkTopExpr :: Env -> TopExpr -> CheckM TopExpr
-checkTopExpr gamma (DefE n t e) = do
-  e' <- check gamma e t
+checkTopExpr env (DefE n t e) = do
+  e' <- check env e t
   return (DefE n t e')
 
 check :: Env -> Expr -> Expr -> CheckM Expr
-check gamma (LambdaE x e) a = do
+check env (LambdaE x e) a = do
   a' <- evalWHNF a
   case a' of
     PiE y b c | x == y -> do
-      e' <- check (addToTEnv gamma x b) e c
+      e' <- check (addToTEnv1 env x b) e c
       return (LambdaE x e')
     _ -> throw (TypeDoesNotMatch (LambdaE x e) a')
-check gamma e@(PairE e1 e2) a = do
+check env e@(PairE e1 e2) a = do
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
-      s <- check gamma e1 b
-      t <- check gamma e2 (substitute1 x s c)
+      s <- check env e1 b
+      t <- check env e2 (substitute1 x s c)
       return (PairE s t)
     _ -> throw (TypeDoesNotMatch e a')
-check gamma e@(DataE c xs) a = do
+check env e@(DataE c xs) a = do
   a' <- evalWHNF a
   case a' of
     TypeE n ts _ -> do
-      (tts, xts, b) <- getFromCEnv gamma c
-      (gamma', ts') <- checkTelescope gamma ts tts
-      (gamma'', xs') <- checkTelescope gamma' xs xts
-      isSubtype gamma'' (substitute ((zip (map fst tts) ts') ++ (zip (map fst xts) xs')) b) a'
+      (tts, xts, b) <- getFromCEnv env c
+      (env', ts') <- checkTelescope env ts tts
+      (env'', xs') <- checkTelescope env' xs xts
+      isSubtype env'' (substitute ((zip (map fst tts) ts') ++ (zip (map fst xts) xs')) b) a'
       return (DataE c xs')
     _ -> throw (TypeDoesNotMatch e a')
-check gamma e a = do
-  (b, t) <- infer gamma e
-  isSubtype gamma a b
+check env e a = do
+  (b, t) <- infer env e
+  isSubtype env a b
   return t
 
 checkTelescope :: Env -> [Expr] -> Telescope -> CheckM (Env, [Expr])
-checkTelescope gamma [] [] = return (gamma, [])
-checkTelescope gamma (x : xs) ((n, xt) : xts) = do
-  x' <- check gamma x xt
-  (gamma', xs') <- checkTelescope (addToTEnv gamma n xt) xs (map (\(n2, xt2) -> (n2, substitute1 n x' xt2)) xts)
-  return (gamma', x' : xs')
+checkTelescope env [] [] = return (env, [])
+checkTelescope env (x : xs) ((n, xt) : xts) = do
+  x' <- check env x xt
+  (env', xs') <- checkTelescope (addToTEnv1 env n xt) xs (map (\(n2, xt2) -> (n2, substitute1 n x' xt2)) xts)
+  return (env', x' : xs')
 
 infer :: Env -> Expr -> CheckM (Expr, Expr)
-infer gamma e@(VarE x) = do
-  a <- getFromTEnv gamma x
+infer env e@(VarE x) = do
+  a <- getFromTEnv env x
   return (a, e)
-infer gamma (ApplyE e1 e2) = do
-  (a, s) <- infer gamma e1
+infer env (ApplyE e1 e2) = do
+  (a, s) <- infer env e1
   a' <- evalWHNF a
   case a' of
     PiE x b c -> do
-      t <- check gamma e2 b
+      t <- check env e2 b
       return (substitute1 x t c, ApplyE s t)
     _ -> throw (ShouldBe "function" e1)
-infer gamma (Proj1E e) = do
-  (a, t) <- infer gamma e
+infer env (Proj1E e) = do
+  (a, t) <- infer env e
   a' <- evalWHNF a
   case a' of
     SigmaE _ b _ -> do
       return (b, Proj1E t)
     _ -> throw (ShouldBe "pair" e)
-infer gamma (Proj2E e) = do
-  (a, t) <- infer gamma e
+infer env (Proj2E e) = do
+  (a, t) <- infer env e
   a' <- evalWHNF a
   case a' of
     SigmaE x _ c -> do
       return (substitute1 x (Proj1E t) c, Proj2E t)
     _ -> throw (ShouldBe "pair" e)
-infer gamma (PiE x e1 e2) = do
-  (c1, a) <- infer gamma e1
-  (c2, b) <- infer (addToTEnv gamma x a) e2
+infer env (PiE x e1 e2) = do
+  (c1, a) <- infer env e1
+  (c2, b) <- infer (addToTEnv1 env x a) e2
   c1' <- evalWHNF c1
   c2' <- evalWHNF c2
   case (c1', c2') of
     (UniverseE i, UniverseE j) -> do
       return (UniverseE (max i j), PiE x a b)
     _ -> throw (Default "infer Pi")
-infer gamma (SigmaE x e1 e2) = do
-  (c1, a) <- infer gamma e1
-  (c2, b) <- infer (addToTEnv gamma x a) e2
+infer env (SigmaE x e1 e2) = do
+  (c1, a) <- infer env e1
+  (c2, b) <- infer (addToTEnv1 env x a) e2
   c1' <- evalWHNF c1
   c2' <- evalWHNF c2
   case (c1', c2') of
@@ -291,112 +304,112 @@ infer _ e@UnitTypeE = do
   return (UniverseE 0, e)
 infer _ e@(UniverseE n) = do
   return (UniverseE (n + 1), e)
-infer gamma e@(TypeE _ _ _) = do
+infer env e@(TypeE _ _ _) = do
   return (UniverseE 0, e)
 infer _ _ = throw (Default "infer not implemented")
 
 isSubtype :: Env -> Expr -> Expr -> CheckM ()
-isSubtype gamma a b = do
+isSubtype env a b = do
   a' <- evalWHNF a
   b' <- evalWHNF b
-  isSubtype' gamma a' b'
+  isSubtype' env a' b'
 
 isSubtype' :: Env -> Expr -> Expr -> CheckM ()
 isSubtype' _ (UniverseE i) (UniverseE j) | i + 1 == j = return ()
-isSubtype' gamma (PiE x a1 b1) (PiE y a2 b2) =
+isSubtype' env (PiE x a1 b1) (PiE y a2 b2) =
   if x == y
     then do
-      isConvertible gamma a1 a2 UniverseAlphaE
-      isSubtype (addToTEnv gamma x a1) b1 b2
+      isConvertible env a1 a2 UniverseAlphaE
+      isSubtype (addToTEnv1 env x a1) b1 b2
     else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
-isSubtype' gamma (SigmaE x a1 b1) (SigmaE y a2 b2) =
+isSubtype' env (SigmaE x a1 b1) (SigmaE y a2 b2) =
   if x == y
     then do
-      isConvertible gamma a1 a2 UniverseAlphaE
-      isSubtype (addToTEnv gamma x a1) b1 b2
+      isConvertible env a1 a2 UniverseAlphaE
+      isSubtype (addToTEnv1 env x a1) b1 b2
     else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
-isSubtype' gamma a b = isConvertible' gamma a b UniverseAlphaE
+isSubtype' env a b = isConvertible' env a b UniverseAlphaE
 
 areConvertible :: Env -> [Expr] -> [Expr] -> Telescope -> CheckM ()
 areConvertible _ [] [] [] = return ()
-areConvertible gamma (x:xs) (y:ys) ((n, xt):xts) = do
-  isConvertible gamma x y xt
-  areConvertible (addToTEnv gamma n x) xs ys (map (\(n2, a2) -> (n2, substitute1 n x a2)) xts)
+areConvertible env (x:xs) (y:ys) ((n, xt):xts) = do
+  isConvertible env x y xt
+  areConvertible (addToTEnv1 env n x) xs ys (map (\(n2, a2) -> (n2, substitute1 n x a2)) xts)
 
 isConvertible :: Env -> Expr -> Expr -> Expr -> CheckM ()
-isConvertible gamma s t a = do
+isConvertible env s t a = do
   s' <- evalWHNF s
   t' <- evalWHNF t
   a' <- evalWHNF a
-  isConvertible' gamma s' t' a'
+  isConvertible' env s' t' a'
 
 isConvertible' :: Env -> Expr -> Expr -> Expr -> CheckM ()
-isConvertible' gamma (UniverseE i) (UniverseE j) UniverseAlphaE =
+isConvertible' env (UniverseE i) (UniverseE j) UniverseAlphaE =
   if i == j then return () else throw (NotConvertible (UniverseE i) (UniverseE j))
-isConvertible' gamma (PiE x a1 b1) (PiE y a2 b2) UniverseAlphaE =
+isConvertible' env (PiE x a1 b1) (PiE y a2 b2) UniverseAlphaE =
   if x == y
     then do
-      isConvertible gamma a1 a2 UniverseAlphaE
-      isConvertible (addToTEnv gamma x a1) b1 b2 UniverseAlphaE
+      isConvertible env a1 a2 UniverseAlphaE
+      isConvertible (addToTEnv1 env x a1) b1 b2 UniverseAlphaE
     else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
-isConvertible' gamma (SigmaE x a1 b1) (SigmaE y a2 b2) UniverseAlphaE =
+isConvertible' env (SigmaE x a1 b1) (SigmaE y a2 b2) UniverseAlphaE =
   if x == y
     then do
-      isConvertible gamma a1 a2 UniverseAlphaE
-      isConvertible (addToTEnv gamma x a1) b1 b2 UniverseAlphaE
+      isConvertible env a1 a2 UniverseAlphaE
+      isConvertible (addToTEnv1 env x a1) b1 b2 UniverseAlphaE
     else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
-isConvertible' gamma s t UnitTypeE = return ()
-isConvertible' gamma s t (PiE x a b) = isConvertible (addToTEnv gamma x a) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
-isConvertible' gamma s t (SigmaE x a b) = do
-  isConvertible gamma (Proj1E s) (Proj1E t) a
-  isConvertible gamma (Proj2E s) (Proj2E t) (substitute1 x (Proj1E s) b)
-isConvertible' gamma (DataE n1 xs1) (DataE n2 xs2) (TypeE _ ts _) =
+isConvertible' env s t UnitTypeE = return ()
+isConvertible' env s t (PiE x a b) = isConvertible (addToTEnv1 env x a) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
+isConvertible' env s t (SigmaE x a b) = do
+  isConvertible env (Proj1E s) (Proj1E t) a
+  isConvertible env (Proj2E s) (Proj2E t) (substitute1 x (Proj1E s) b)
+isConvertible' env (DataE n1 xs1) (DataE n2 xs2) (TypeE _ ts _) =
   if n1 == n2
     then do
-      (tts, xts, _) <- getFromCEnv gamma n1
-      areConvertible gamma xs1 xs2 (substituteWithTelescope tts ts xts)
+      (tts, xts, _) <- getFromCEnv env n1
+      areConvertible env xs1 xs2 (substituteWithTelescope tts ts xts)
     else throw (NotConvertible (DataE n1 xs1) (DataE n2 xs2))
-isConvertible' gamma s t a = do
+isConvertible' env s t a = do
   if isNeutral s && isNeutral t
     then do
-      _ <- isEqual gamma s t
+      _ <- isEqual env s t
       return ()
     else throw (Default "isConvertible' else")
 
 isEqual :: Env -> Expr -> Expr -> CheckM Expr
-isEqual gamma (VarE x) (VarE y) =
+isEqual env (VarE x) (VarE y) =
   if x == y
     then do
-      a <- getFromTEnv gamma x
+      a <- getFromTEnv env x
       return a
     else throw (Default "isEqual var")
-isEqual gamma (ApplyE s1 t1) (ApplyE s2 t2) = do
-  a <- isEqual gamma s1 s2
+isEqual env (ApplyE s1 t1) (ApplyE s2 t2) = do
+  a <- isEqual env s1 s2
   a' <- evalWHNF a
   case a' of
     PiE x b c -> do
-      isConvertible gamma t1 t2 b
+      isConvertible env t1 t2 b
       return (substitute1 x t1 c)
     _ -> throw (Default "isEqual apply")
-isEqual gamma (Proj1E s) (Proj1E t) = do
-  a <- isEqual gamma s t
+isEqual env (Proj1E s) (Proj1E t) = do
+  a <- isEqual env s t
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
       return b
     _ -> throw (Default "isEqual proj1")
-isEqual gamma (Proj2E s) (Proj2E t) = do
-  a <- isEqual gamma s t
+isEqual env (Proj2E s) (Proj2E t) = do
+  a <- isEqual env s t
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
       return (substitute1 x (Proj1E s) c)
     _ -> throw (Default "isEqual proj2")
-isEqual gamma (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) =
+isEqual env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) =
   if n1 == n2
     then do
-      (tts, its) <- getFromDEnv gamma n1
-      areConvertible gamma (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
+      (tts, its) <- getFromDEnv env n1
+      areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
       return (UniverseE 0)
     else throw (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
 isEqual _ _ _ = throw (Default "isEqual not implemented")
@@ -471,19 +484,33 @@ substitutePat1 _ p = p
 
 type ContextMapping = ([(Name, Pattern)], Context, Context)
 
-split :: [Pattern] -> Context -> CheckM (Maybe ContextMapping)
-split ps delta = undefined
---  match (zip ps delta) (List (Pair PatternM (Pair Something Something)))
---    [[mc| $hs ++ (consPat $c $qs, ($x, $a)) :: $ts -> do
---        let (ps1, delta1) = unzip hs
---        let (ps2, delta2) = unzip ts
---        undefined
---        cT <- getType c
---        flexible (ps1 ++ qs) (delta1 ++ theta)
---        undefined
---        return (Just (undefined, undefined, delta))
---        |],
---     [mc| _ -> return Nothing|]]
+split :: Env -> [Pattern] -> Context -> CheckM (Maybe ContextMapping)
+split env ps delta =
+  match dfs (zip ps delta) (List (Pair PatternM (Pair Something Something)))
+    [[mc| $hs ++ (consPat $c $qs, ($x, $a)) : $ts -> do
+        let (ps1, delta1) = unzip hs
+        let (ps2, delta2) = unzip ts
+        duv <- evalWHNF a
+        case duv of
+          TypeE d us vs -> do
+            (us1, xi) <- getFromDEnv env d
+            undefined -- need to check us and us1 matchs
+            (us2, theta, duw) <- getFromCEnv env c
+            undefined -- need to check us and us2 matchs
+            case duw of
+              TypeE d' us' ws -> do
+                let zeta = flexible (ps1 ++ qs) (delta1 ++ theta)
+                cm <- unify env zeta (delta1 ++ theta) vs ws (map snd xi)
+                case cm of
+                  (ms, delta', delta1Theta) -> do
+                    let cm' = (ms ++ [undefined], delta', delta1 ++ [undefined])
+                    case cm' of
+                     (ms', _, _) -> do
+                       return (Just (ms', delta' ++ (undefined delta2 cm'), delta))
+              _ -> throw (Default "")
+          _ -> throw (Default "")
+        |],
+     [mc| _ -> return Nothing|]]
 
 updatePat :: ContextMapping -> [Pattern] -> CheckM [Pattern]
 updatePat (ms, _, delta) ps = updatePat' (map (substitutePat ms) (map (\(q, _) -> PatVar q) delta)) ps
@@ -502,23 +529,23 @@ updatePat' (sigma : sigmas) (p : ps) = do
       then updatePat' sigmas ps
       else throw (Default "")
 
-proceed :: [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
-proceed ps (ms, delta, gamma) = do
-  Just (ms', delta', _) <- split ps delta
+proceed :: Env -> [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
+proceed env ps (ms, delta, gamma) = do
+  Just (ms', delta', _) <- split env ps delta
   ps' <- updatePat (ms', delta', delta) ps
   return (ps', (ms ++ ms', delta', gamma))
 
-proceedMulti :: [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
-proceedMulti ps sigma@(ms, delta, gamma) = do
-  ret <- split ps delta
+proceedMulti :: Env -> [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
+proceedMulti env ps sigma@(ms, delta, gamma) = do
+  ret <- split env ps delta
   case ret of
     Nothing -> return (ps, sigma)
     Just _ -> do
-      (ps', sigma') <- proceed ps sigma
-      proceedMulti ps' sigma'
+      (ps', sigma') <- proceed env ps sigma
+      proceedMulti env ps' sigma'
 
-checkPats :: [Pattern] -> Context -> CheckM ([Pattern], ContextMapping)
-checkPats ps gamma = proceedMulti ps (idContextMapping gamma)
+checkPats :: Env -> [Pattern] -> Context -> CheckM ([Pattern], ContextMapping)
+checkPats env ps gamma = proceedMulti env ps (idContextMapping gamma)
 
 idContextMapping :: Context -> ContextMapping
 idContextMapping gamma = ([], gamma, gamma)
@@ -528,24 +555,39 @@ flexible [] [] = []
 flexible (InaccessiblePat _ : ps) ((x, _) : delta) = x : flexible ps delta
 flexible (_ : ps) (_ : delta) = flexible ps delta
 
-unify :: [Name] -> Context -> [Expr] -> [Expr] -> [Expr] -> CheckM ContextMapping
-unify zeta gamma vs ws xi = undefined
+unify :: Env -> [Name] -> Context -> [Expr] -> [Expr] -> [Expr] -> CheckM ContextMapping
+unify env zeta gamma vs ws xi = undefined
 
-unify1 :: [Name] -> Context -> Expr -> Expr -> Expr -> CheckM ContextMapping
-unify1 zeta gamma (VarE x) v _ =
+unify1 :: Env -> [Name] -> Context -> Expr -> Expr -> Expr -> CheckM ContextMapping
+unify1 env zeta gamma (VarE x) v _ =
   if isFlexible x zeta && not (isFree x v)
-    then return ([(x, InaccessiblePat v)], undefined, gamma)
+    then do
+      gamma' <- addNewContext env x v gamma
+      return ([(x, InaccessiblePat v)], gamma', gamma)
     else throw (Default "")
-unify1 zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
+unify1 env zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
   if c1 == c2
     then do
-      -- get the type of the constructor c1
-      unify zeta gamma us vs undefined
+      a' <- evalWHNF a
+      case a' of
+        TypeE n ts _ -> do
+          (tts, xts, b) <- getFromCEnv env c1
+          (env', ts') <- checkTelescope env ts tts
+          unify env' zeta gamma us vs (map snd xts)
+        _ -> throw (Default "")
     else throw (Default "")
 
 isFlexible = undefined
 isFree = undefined
 
+addNewContext :: Env -> Name -> Expr -> Context -> CheckM Context
+addNewContext env x p cs =
+  match dfs cs (List (Pair Eql Something))
+    [[mc| $gamma ++ (#x, $a) : $delta -> do
+        check (addToTEnv env gamma) p a
+        return (gamma ++ map (\(y, b) -> (y, substitute1 x p b)) delta) |],
+     [mc| _ -> throw (UnboundVariable x) |]]
+     
 ---
 --- Sample programs without pattern matching
 ---
