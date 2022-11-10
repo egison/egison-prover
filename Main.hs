@@ -500,7 +500,7 @@ split env ps delta =
             case duw of
               TypeE d' us' ws -> do
                 let zeta = flexible (ps1 ++ qs) (delta1 ++ theta)
-                cm <- unify env zeta (delta1 ++ theta) vs ws (map snd xi)
+                cm <- unify env zeta (delta1 ++ theta) vs ws xi
                 case cm of
                   (ms, delta', delta1Theta) -> do
                     let cm' = (ms ++ [undefined], delta', delta1 ++ [undefined])
@@ -555,16 +555,17 @@ flexible [] [] = []
 flexible (InaccessiblePat _ : ps) ((x, _) : delta) = x : flexible ps delta
 flexible (_ : ps) (_ : delta) = flexible ps delta
 
-unify :: Env -> [Name] -> Context -> [Expr] -> [Expr] -> [Expr] -> CheckM ContextMapping
-unify env zeta gamma vs ws xi = undefined
+unify :: Env -> [Name] -> Context -> [Expr] -> [Expr] -> Context -> CheckM ContextMapping
+unify env zeta gamma [] [] _ = return (idContextMapping gamma)
+unify env zeta gamma (v : vs) (w : ws) ((x, a) : xi) = do
+  (ms, gamma1, _) <- unify1 env zeta gamma v w a
+  (ms', gamma2, _) <- unify env zeta gamma1 undefined undefined xi
+  return (ms', gamma2, gamma)
 
 unify1 :: Env -> [Name] -> Context -> Expr -> Expr -> Expr -> CheckM ContextMapping
-unify1 env zeta gamma (VarE x) v _ =
-  if isFlexible x zeta && not (isFree x v)
-    then do
-      gamma' <- addNewContext env x v gamma
-      return ([(x, InaccessiblePat v)], gamma', gamma)
-    else throw (Default "")
+unify1 env zeta gamma (VarE x) v _ | isFlexible x zeta && not (isFree x v) = do
+  gamma' <- addNewContext env x v gamma
+  return ([(x, InaccessiblePat v)], gamma', gamma)
 unify1 env zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
   if c1 == c2
     then do
@@ -573,12 +574,28 @@ unify1 env zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
         TypeE n ts _ -> do
           (tts, xts, b) <- getFromCEnv env c1
           (env', ts') <- checkTelescope env ts tts
-          unify env' zeta gamma us vs (map snd xts)
+          unify env' zeta gamma us vs xts
         _ -> throw (Default "")
     else throw (Default "")
+unify1 env _ gamma u v a = do
+  isConvertible env u v a
+  return (idContextMapping gamma)
 
-isFlexible = undefined
-isFree = undefined
+isFlexible :: Name -> [Name] -> Bool
+isFlexible x zeta = elem x zeta
+
+isFree :: Name -> Expr -> Bool
+isFree _ _ = False -- TODO: this function is undefined
+
+isAccecible :: Name -> [Pattern] -> Bool
+isAccecible x [] = False
+isAccecible x (p : ps) = isAccecible1 x p || isAccecible x ps
+
+isAccecible1 :: Name -> Pattern -> Bool
+isAccecible1 x (PatVar y) | x == y = True
+isAccecible1 _ (PatVar _) = False
+isAccecible1 x (ConsPat _ ps) = isAccecible x ps
+isAccecible1 x (InaccessiblePat _) = False
 
 addNewContext :: Env -> Name -> Expr -> Context -> CheckM Context
 addNewContext env x p cs =
