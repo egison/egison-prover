@@ -7,6 +7,7 @@ module Main where
 
 import Control.Exception.Safe
 import Control.Monad.Except
+import Control.Monad.Trans.State.Strict
 import Control.Egison hiding (Pattern)
 import qualified Control.Egison as Egison
 
@@ -37,10 +38,10 @@ main = do
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
---  ret <- runCheckM (checkTopExpr env (desugarTopExpr iReflDef))
---  case ret of
---    Left err -> print err
---    Right expr -> print (show expr)
+  ret <- runCheckM (checkTopExpr env (desugarTopExpr iReflDef))
+  case ret of
+    Left err -> print err
+    Right expr -> print (show expr)
   putStrLn (show (desugarTopExpr plusDef))
   putStrLn "end"
   
@@ -62,10 +63,40 @@ instance Show PwlError where
 
 instance Exception PwlError
 
-type CheckM = ExceptT PwlError IO
+data RState = RState
+  { indexCounter :: Int
+  }
+
+initialRState :: RState
+initialRState = RState
+  { indexCounter = 0
+  }
+
+type RuntimeT m = StateT RState m
+
+type RuntimeM = RuntimeT IO
+
+class (Applicative m, Monad m) => MonadRuntime m where
+  fresh :: m String
+
+instance Monad m => MonadRuntime (RuntimeT m) where
+  fresh = do
+    st <- get
+    modify (\st -> st { indexCounter = indexCounter st + 1 })
+    return $ "$_" ++ show (indexCounter st)
+
+runRuntimeT :: Monad m => RuntimeT m a -> m (a, RState)
+runRuntimeT = flip runStateT initialRState
+
+evalRuntimeT :: Monad m => RuntimeT m a -> m a
+evalRuntimeT = flip evalStateT initialRState
+
+type CheckM = ExceptT PwlError RuntimeM
 
 runCheckM :: CheckM a -> IO (Either PwlError a)
-runCheckM = runExceptT
+runCheckM ma = do
+  (ret, _) <- runRuntimeT (runExceptT ma)
+  return ret
 
 --- Datatypes
 
@@ -101,18 +132,18 @@ data Expr
 
 data Pattern
   = PatVar Name
-  | ConsPat Name [Pattern]
+  | DataPat Name [Pattern]
   | InaccessiblePat Expr
  deriving Show
 
 data PatternM = PatternM
 instance Matcher PatternM Pattern
 
-consPat :: Egison.Pattern (PP Name, PP [Pattern]) PatternM Pattern (Name, [Pattern])
-consPat _ _ (ConsPat n ps) = pure (n, ps)
+dataPat :: Egison.Pattern (PP Name, PP [Pattern]) PatternM Pattern (Name, [Pattern])
+dataPat _ _ (DataPat n ps) = pure (n, ps)
 
-consPatM :: m -> t -> (Something, List PatternM)
-consPatM _ _ = (Something, (List PatternM))
+dataPatM :: m -> t -> (Something, List PatternM)
+dataPatM _ _ = (Something, (List PatternM))
 
 type TVal = Expr
 type Val = Expr
@@ -152,7 +183,7 @@ getFromEnv :: [(Name, a)] -> Name -> CheckM a
 getFromEnv env x =
   match dfs env (List (Pair Eql Something))
     [[mc| _ ++ (#x, $t) : _ -> return t |],
-     [mc| _ -> throw (UnboundVariable x) |]]
+     [mc| _ -> throwError (UnboundVariable x) |]]
 
 getFromTEnv :: Env -> Name -> CheckM TVal
 getFromTEnv (tenv, _, _) x = getFromEnv tenv x
@@ -193,7 +224,7 @@ desugarExpr :: Expr -> Expr
 desugarExpr (ArrowE t1 t2) = desugarExpr (PiE "_" t1 t2)
 desugarExpr (LambdaMultiE ns e) = desugarExpr (foldr (\n e' -> LambdaE n e') e ns)
 desugarExpr (ApplyMultiE f as) = desugarExpr (foldl (\a f' -> ApplyE f' a) f as)
-desugarExpr (PiE n e1 e2) = PiE n (desugarExpr e1) (desugarExpr e2)
+
 desugarExpr (LambdaE n e1) = LambdaE n (desugarExpr e1)
 desugarExpr (ApplyE e1 e2) = ApplyE (desugarExpr e1) (desugarExpr e2)
 desugarExpr (SigmaE n e1 e2) = SigmaE n (desugarExpr e1) (desugarExpr e2)
@@ -206,7 +237,7 @@ desugarExpr e = e
 
 desugarPattern :: Pattern -> Pattern
 desugarPattern (InaccessiblePat e) = InaccessiblePat (desugarExpr e)
-desugarPattern (ConsPat n ps) = ConsPat n (map desugarPattern ps)
+desugarPattern (DataPat n ps) = DataPat n (map desugarPattern ps)
 desugarPattern p = p
                 
 --- Type checking
@@ -223,7 +254,7 @@ check env (LambdaE x e) a = do
     PiE y b c | x == y -> do
       e' <- check (addToTEnv1 env x b) e c
       return (LambdaE x e')
-    _ -> throw (TypeDoesNotMatch (LambdaE x e) a')
+    _ -> throwError (TypeDoesNotMatch (LambdaE x e) a')
 check env e@(PairE e1 e2) a = do
   a' <- evalWHNF a
   case a' of
@@ -231,17 +262,19 @@ check env e@(PairE e1 e2) a = do
       s <- check env e1 b
       t <- check env e2 (substitute1 x s c)
       return (PairE s t)
-    _ -> throw (TypeDoesNotMatch e a')
+    _ -> throwError (TypeDoesNotMatch e a')
 check env e@(DataE c xs) a = do
   a' <- evalWHNF a
   case a' of
-    TypeE n ts _ -> do
+    TypeE _ ts _ -> do
       (tts, xts, b) <- getFromCEnv env c
       (env', ts') <- checkTelescope env ts tts
       (env'', xs') <- checkTelescope env' xs xts
       isSubtype env'' (substitute ((zip (map fst tts) ts') ++ (zip (map fst xts) xs')) b) a'
       return (DataE c xs')
-    _ -> throw (TypeDoesNotMatch e a')
+    _ -> throwError (TypeDoesNotMatch e a')
+check env (CaseE ts ms) a = do
+  undefined
 check env e a = do
   (b, t) <- infer env e
   isSubtype env a b
@@ -265,21 +298,21 @@ infer env (ApplyE e1 e2) = do
     PiE x b c -> do
       t <- check env e2 b
       return (substitute1 x t c, ApplyE s t)
-    _ -> throw (ShouldBe "function" e1)
+    _ -> throwError (ShouldBe "function" e1)
 infer env (Proj1E e) = do
   (a, t) <- infer env e
   a' <- evalWHNF a
   case a' of
     SigmaE _ b _ -> do
       return (b, Proj1E t)
-    _ -> throw (ShouldBe "pair" e)
+    _ -> throwError (ShouldBe "pair" e)
 infer env (Proj2E e) = do
   (a, t) <- infer env e
   a' <- evalWHNF a
   case a' of
     SigmaE x _ c -> do
       return (substitute1 x (Proj1E t) c, Proj2E t)
-    _ -> throw (ShouldBe "pair" e)
+    _ -> throwError (ShouldBe "pair" e)
 infer env (PiE x e1 e2) = do
   (c1, a) <- infer env e1
   (c2, b) <- infer (addToTEnv1 env x a) e2
@@ -288,7 +321,7 @@ infer env (PiE x e1 e2) = do
   case (c1', c2') of
     (UniverseE i, UniverseE j) -> do
       return (UniverseE (max i j), PiE x a b)
-    _ -> throw (Default "infer Pi")
+    _ -> throwError (Default "infer Pi")
 infer env (SigmaE x e1 e2) = do
   (c1, a) <- infer env e1
   (c2, b) <- infer (addToTEnv1 env x a) e2
@@ -297,7 +330,7 @@ infer env (SigmaE x e1 e2) = do
   case (c1', c2') of
     (UniverseE i, UniverseE j) -> do
       return (UniverseE (max i j), SigmaE x a b)
-    _ -> throw (Default "infer Sigma")
+    _ -> throwError (Default "infer Sigma")
 infer _ e@UnitE = do
   return (UnitTypeE, e)
 infer _ e@UnitTypeE = do
@@ -306,7 +339,7 @@ infer _ e@(UniverseE n) = do
   return (UniverseE (n + 1), e)
 infer env e@(TypeE _ _ _) = do
   return (UniverseE 0, e)
-infer _ _ = throw (Default "infer not implemented")
+infer _ _ = throwError (Default "infer not implemented")
 
 isSubtype :: Env -> Expr -> Expr -> CheckM ()
 isSubtype env a b = do
@@ -321,13 +354,13 @@ isSubtype' env (PiE x a1 b1) (PiE y a2 b2) =
     then do
       isConvertible env a1 a2 UniverseAlphaE
       isSubtype (addToTEnv1 env x a1) b1 b2
-    else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
+    else throwError (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
 isSubtype' env (SigmaE x a1 b1) (SigmaE y a2 b2) =
   if x == y
     then do
       isConvertible env a1 a2 UniverseAlphaE
       isSubtype (addToTEnv1 env x a1) b1 b2
-    else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
+    else throwError (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
 isSubtype' env a b = isConvertible' env a b UniverseAlphaE
 
 areConvertible :: Env -> [Expr] -> [Expr] -> Telescope -> CheckM ()
@@ -345,19 +378,19 @@ isConvertible env s t a = do
 
 isConvertible' :: Env -> Expr -> Expr -> Expr -> CheckM ()
 isConvertible' env (UniverseE i) (UniverseE j) UniverseAlphaE =
-  if i == j then return () else throw (NotConvertible (UniverseE i) (UniverseE j))
+  if i == j then return () else throwError (NotConvertible (UniverseE i) (UniverseE j))
 isConvertible' env (PiE x a1 b1) (PiE y a2 b2) UniverseAlphaE =
   if x == y
     then do
       isConvertible env a1 a2 UniverseAlphaE
       isConvertible (addToTEnv1 env x a1) b1 b2 UniverseAlphaE
-    else throw (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
+    else throwError (NotConvertible (PiE x a1 b1) (PiE y a2 b2))
 isConvertible' env (SigmaE x a1 b1) (SigmaE y a2 b2) UniverseAlphaE =
   if x == y
     then do
       isConvertible env a1 a2 UniverseAlphaE
       isConvertible (addToTEnv1 env x a1) b1 b2 UniverseAlphaE
-    else throw (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
+    else throwError (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
 isConvertible' env s t UnitTypeE = return ()
 isConvertible' env s t (PiE x a b) = isConvertible (addToTEnv1 env x a) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
 isConvertible' env s t (SigmaE x a b) = do
@@ -368,13 +401,13 @@ isConvertible' env (DataE n1 xs1) (DataE n2 xs2) (TypeE _ ts _) =
     then do
       (tts, xts, _) <- getFromCEnv env n1
       areConvertible env xs1 xs2 (substituteWithTelescope tts ts xts)
-    else throw (NotConvertible (DataE n1 xs1) (DataE n2 xs2))
+    else throwError (NotConvertible (DataE n1 xs1) (DataE n2 xs2))
 isConvertible' env s t a = do
   if isNeutral s && isNeutral t
     then do
       _ <- isEqual env s t
       return ()
-    else throw (Default "isConvertible' else")
+    else throwError (Default "isConvertible' else")
 
 isEqual :: Env -> Expr -> Expr -> CheckM Expr
 isEqual env (VarE x) (VarE y) =
@@ -382,7 +415,7 @@ isEqual env (VarE x) (VarE y) =
     then do
       a <- getFromTEnv env x
       return a
-    else throw (Default "isEqual var")
+    else throwError (Default "isEqual var")
 isEqual env (ApplyE s1 t1) (ApplyE s2 t2) = do
   a <- isEqual env s1 s2
   a' <- evalWHNF a
@@ -390,29 +423,29 @@ isEqual env (ApplyE s1 t1) (ApplyE s2 t2) = do
     PiE x b c -> do
       isConvertible env t1 t2 b
       return (substitute1 x t1 c)
-    _ -> throw (Default "isEqual apply")
+    _ -> throwError (Default "isEqual apply")
 isEqual env (Proj1E s) (Proj1E t) = do
   a <- isEqual env s t
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
       return b
-    _ -> throw (Default "isEqual proj1")
+    _ -> throwError (Default "isEqual proj1")
 isEqual env (Proj2E s) (Proj2E t) = do
   a <- isEqual env s t
   a' <- evalWHNF a
   case a' of
     SigmaE x b c -> do
       return (substitute1 x (Proj1E s) c)
-    _ -> throw (Default "isEqual proj2")
+    _ -> throwError (Default "isEqual proj2")
 isEqual env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) =
   if n1 == n2
     then do
       (tts, its) <- getFromDEnv env n1
       areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
       return (UniverseE 0)
-    else throw (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
-isEqual _ _ _ = throw (Default "isEqual not implemented")
+    else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
+isEqual _ _ _ = throwError (Default "isEqual not implemented")
 
 evalWHNF :: Expr -> CheckM Expr
 --evalWHNF (VarE n) = undefined
@@ -477,7 +510,7 @@ substitutePat ((x, q) : ms) p = substitutePat ms (substitutePat1 (x, q) p)
 substitutePat1 :: (Name, Pattern) -> Pattern -> Pattern
 substitutePat1 (x, q) p@(PatVar y) | x == y = q
                                    | otherwise = p
-substitutePat1 (x, q) (ConsPat c ps) = ConsPat c (map (substitutePat1 (x, q)) ps)
+substitutePat1 (x, q) (DataPat c ps) = DataPat c (map (substitutePat1 (x, q)) ps)
 substitutePat1 _ p = p
 
 --- Type-checking for inductive patterns
@@ -487,7 +520,7 @@ type ContextMapping = ([(Name, Pattern)], Context, Context)
 split :: Env -> [Pattern] -> Context -> CheckM (Maybe ContextMapping)
 split env ps delta =
   match dfs (zip ps delta) (List (Pair PatternM (Pair Something Something)))
-    [[mc| $hs ++ (consPat $c $qs, ($x, $a)) : $ts -> do
+    [[mc| $hs ++ (dataPat $c $qs, ($x, $a)) : $ts -> do
         let (ps1, delta1) = unzip hs
         let (ps2, delta2) = unzip ts
         duv <- evalWHNF a
@@ -507,8 +540,8 @@ split env ps delta =
                     case cm' of
                      (ms', _, _) -> do
                        return (Just (ms', delta' ++ (undefined delta2 cm'), delta))
-              _ -> throw (Default "")
-          _ -> throw (Default "")
+              _ -> throwError (Default "")
+          _ -> throwError (Default "")
         |],
      [mc| _ -> return Nothing|]]
 
@@ -524,10 +557,10 @@ updatePat' (sigma : sigmas) (p : ps) = do
  where
   updatePat1 sigma@(PatVar _) p = return [p]
   updatePat1 (InaccessiblePat _) _ = return []
-  updatePat1 (ConsPat c sigmas) (ConsPat c' ps) =
+  updatePat1 (DataPat c sigmas) (DataPat c' ps) =
     if c == c'
       then updatePat' sigmas ps
-      else throw (Default "")
+      else throwError (Default "")
 
 proceed :: Env -> [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
 proceed env ps (ms, delta, gamma) = do
@@ -575,8 +608,8 @@ unify1 env zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
           (tts, xts, b) <- getFromCEnv env c1
           (env', ts') <- checkTelescope env ts tts
           unify env' zeta gamma us vs xts
-        _ -> throw (Default "")
-    else throw (Default "")
+        _ -> throwError (Default "")
+    else throwError (Default "")
 unify1 env _ gamma u v a = do
   isConvertible env u v a
   return (idContextMapping gamma)
@@ -594,7 +627,7 @@ isAccecible x (p : ps) = isAccecible1 x p || isAccecible x ps
 isAccecible1 :: Name -> Pattern -> Bool
 isAccecible1 x (PatVar y) | x == y = True
 isAccecible1 _ (PatVar _) = False
-isAccecible1 x (ConsPat _ ps) = isAccecible x ps
+isAccecible1 x (DataPat _ ps) = isAccecible x ps
 isAccecible1 x (InaccessiblePat _) = False
 
 addNewContext :: Env -> Name -> Expr -> Context -> CheckM Context
@@ -603,7 +636,7 @@ addNewContext env x p cs =
     [[mc| $gamma ++ (#x, $a) : $delta -> do
         check (addToTEnv env gamma) p a
         return (gamma ++ map (\(y, b) -> (y, substitute1 x p b)) delta) |],
-     [mc| _ -> throw (UnboundVariable x) |]]
+     [mc| _ -> throwError (UnboundVariable x) |]]
      
 ---
 --- Sample programs without pattern matching
@@ -678,22 +711,28 @@ iReflDef = DefE "ir"
 --   [[<suc $m> $n] <suc (plus m n)>]})
 plusDef :: TopExpr
 plusDef = DefCaseE "plus" [("x", TypeE "Nat" [] []), ("y", TypeE "Nat" [] [])] (TypeE "Nat" [] [])
-  [([ConsPat "zero" [], PatVar "n"], VarE "n"),
-   ([ConsPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
+  [([DataPat "zero" [], PatVar "n"], VarE "n"),
+   ([DataPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
 
 --(define (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
 --  {[[_ _ _ <refl>] <refl>]})
 congDef :: TopExpr
 congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
-  [([PatVar "f", ConsPat "refl" []], VarE "refl")]
+  [([PatVar "f", DataPat "refl" []], DataE "refl" [])]
 
 --(define (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
 --   [<suc $m> (cong suc (plusZero m))]})
 plusZeroDef :: TopExpr
 plusZeroDef = DefCaseE "plusZero" [("n", TypeE "Nat" [] [])] (TypeE "Eq" [TypeE "Nat" [] [], ApplyMultiE (VarE "plus") [(VarE "n"), (DataE "zero" [])]] [VarE "n"])
-  [([ConsPat "zero" []], VarE "refl"),
-   ([ConsPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
+  [([DataPat "zero" []], DataE "refl" []),
+   ([DataPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
+
+-- (define (axiomK (A : (Universe 0)) (a : A) (P : <Eq {A a} {a}> -> (Universe 0)) (p : (P <refl>)) (e : <Eq {A a} {a}>)) : (P e)
+--   {[[$A $a $P $p <refl>] p]})
+axiomKDef :: TopExpr
+axiomKDef = DefCaseE "axiomK" [("A", (UniverseE 0)), ("a", (VarE "A")), ("P", (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")])), ("p", (ApplyE (VarE "P") (DataE "refl" []))), ("e", (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]))] (ApplyE (VarE "P") (VarE "e"))
+  [([PatVar "A", PatVar "a", PatVar "P", PatVar "p", DataPat "refl" []], VarE "p")]
 
 --(data Lte {} {Nat Nat}
 --  {[lz (y : Nat) : (Lte <zero> y)]
@@ -708,8 +747,8 @@ lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
 --   [[#<suc m'> #<suc n'> <ls $m' $n' $x> <ls #n' #m' $y>] (cong suc (antisym m' n' x y))]})
 antisymDef :: TopExpr
 antisymDef = DefCaseE "antisym" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
-  [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), ConsPat "lz" [InaccessiblePat (DataE "zero" [])], ConsPat "lz" [InaccessiblePat (DataE "zero" [])]], VarE "refl"),
-   ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), ConsPat"ls" [PatVar "k", PatVar "l", PatVar "x"], ConsPat "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
+  [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), DataPat "lz" [InaccessiblePat (DataE "zero" [])], DataPat "lz" [InaccessiblePat (DataE "zero" [])]], DataE "refl" []),
+   ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), DataPat"ls" [PatVar "k", PatVar "l", PatVar "x"], DataPat "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
 
 --(data (Vec {(A : (Universe 0))} {(_ : Nat)}
 --  {[nil  : (Vec A <zero>)]
