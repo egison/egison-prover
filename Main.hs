@@ -13,7 +13,7 @@ import qualified Control.Egison as Egison
 
 main :: IO ()
 main = do
-  (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef])
+  (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef', congDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef])
   let envT = initTopTEnv topExprs
   let envD = initTopDEnv topExprs
   let envC = initTopCEnv topExprs
@@ -42,6 +42,8 @@ main = do
   case ret of
     Left err -> print err
     Right expr -> print (show expr)
+  putStrLn (show natDef')
+  putStrLn (show congDef')
   putStrLn "end"
   
 --- Monad
@@ -97,6 +99,9 @@ runCheckM ma = do
   (ret, _) <- runRuntimeT (runExceptT ma)
   return ret
 
+instance MonadRuntime CheckM where
+  fresh = lift fresh
+  
 --- Datatypes
 
 type Name = String
@@ -203,10 +208,11 @@ addToTEnv (tenv, denv, cenv) cs = (tenv ++ cs, denv, cenv)
 
 desugarTopExpr :: TopExpr -> CheckM TopExpr
 desugarTopExpr (DataDecE n as is cs) = do
-  as' <- mapM (\(s, e) -> desugarExpr e >>= return . (s,)) as
-  is' <- mapM (\(s, e) -> desugarExpr e >>= return . (s,)) is
+  as' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) as
+  is' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) is
   cs' <- mapM (\(s, ts, e) -> do
-                  ts' <- mapM (\(s, e) -> desugarExpr e >>= return . (s,)) ts
+                  s' <- replaceWc s
+                  ts' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) ts
                   e' <- desugarExpr e
                   return (s, ts', e')) cs
   return (DataDecE n as' is' cs')
@@ -219,11 +225,14 @@ desugarTopExpr (DefFunE n as t e) = do
   let e' = foldr (\(s, _) e' -> LambdaE s e') e as
   desugarTopExpr (DefE n t' e')
 desugarTopExpr (DefCaseE n as t cs) = do
-  let as' = map (\(s, _) -> VarE s) as
-  desugarTopExpr (DefFunE n as t (CaseE as' cs))
+  as' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) as
+  desugarTopExpr (DefFunE n as' t (CaseE (map (VarE . fst) as') cs))
   
 desugarExpr :: Expr -> CheckM Expr
-desugarExpr (ArrowE t1 t2) = desugarExpr (PiE "_" t1 t2)
+desugarExpr (ArrowE t1 t2) = do
+  s <- fresh
+  desugarExpr (PiE s t1 t2)
+desugarExpr (PiE s t1 t2) = PiE <$> replaceWc s <*> desugarExpr t1 <*> desugarExpr t2
 desugarExpr (LambdaMultiE ns e) = desugarExpr (foldr (\n e' -> LambdaE n e') e ns)
 desugarExpr (ApplyMultiE f as) = desugarExpr (foldl (\a f' -> ApplyE f' a) f as)
 desugarExpr (LambdaE n e1) = LambdaE n <$> (desugarExpr e1)
@@ -240,7 +249,11 @@ desugarPattern :: Pattern -> CheckM Pattern
 desugarPattern (InaccessiblePat e) = desugarExpr e >>= return . InaccessiblePat
 desugarPattern (DataPat n ps) = mapM desugarPattern ps >>= return . (DataPat n)
 desugarPattern p = return p
-                
+
+replaceWc :: Name -> CheckM Name
+replaceWc "_" = fresh
+replaceWc s   = return s
+
 --- Type checking
 
 checkTopExpr :: Env -> TopExpr -> CheckM TopExpr
