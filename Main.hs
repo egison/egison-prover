@@ -13,7 +13,7 @@ import qualified Control.Egison as Egison
 
 main :: IO ()
 main = do
-  (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef', congDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef])
+  (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef', congDef', axiomKDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, axiomKDef])
   let envT = initTopTEnv topExprs
   let envD = initTopDEnv topExprs
   let envC = initTopCEnv topExprs
@@ -42,10 +42,21 @@ main = do
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
-  putStrLn (show natDef)
-  putStrLn (show natDef')
-  putStrLn (show congDef)
-  putStrLn (show congDef')
+  ret <- runCheckM (checkTopExpr env plusDef')
+  case ret of
+    Left err -> print err
+    Right expr -> putStrLn (show expr)
+  putStrLn "start"
+  ret <- runCheckM (checkTopExpr env axiomKDef')
+  case ret of
+    Left err -> print err
+    Right expr -> putStrLn (show expr)
+--  putStrLn (show natDef)
+--  putStrLn (show natDef')
+--  putStrLn (show congDef)
+--  putStrLn (show congDef')
+--  putStrLn (show plusDef)
+--  putStrLn (show plusDef')
   putStrLn "end"
   
 --- Monad
@@ -81,12 +92,17 @@ type RuntimeM = RuntimeT IO
 
 class (Applicative m, Monad m) => MonadRuntime m where
   fresh :: m String
+  addFresh :: String -> m String
 
 instance Monad m => MonadRuntime (RuntimeT m) where
   fresh = do
     st <- get
     modify (\st -> st { indexCounter = indexCounter st + 1 })
     return $ "$_" ++ show (indexCounter st)
+  addFresh name = do
+    st <- get
+    modify (\st -> st { indexCounter = indexCounter st + 1 })
+    return $ name ++ "_" ++ show (indexCounter st)
 
 runRuntimeT :: Monad m => RuntimeT m a -> m (a, RState)
 runRuntimeT = flip runStateT initialRState
@@ -103,6 +119,7 @@ runCheckM ma = do
 
 instance MonadRuntime CheckM where
   fresh = lift fresh
+  addFresh s = lift (addFresh s)
   
 --- Datatypes
 
@@ -140,7 +157,7 @@ data Pattern
   = Wildcard
   | PatVar Name
   | DataPat Name [Pattern]
-  | InaccessiblePat Expr
+  | ValuePat Expr
  deriving Show
 
 data PatternM = PatternM
@@ -196,10 +213,22 @@ getFromTEnv :: Env -> Name -> CheckM TVal
 getFromTEnv (tenv, _, _) x = getFromEnv tenv x
      
 getFromDEnv :: Env -> Name -> CheckM (Telescope, Indices)
-getFromDEnv (_, denv, _) x = getFromEnv denv x
+getFromDEnv (_, denv, _) x = do
+  (ts, is) <- getFromEnv denv x
+  tns <- mapM addFresh (map fst ts)
+  ins <- mapM addFresh (map fst is)
+  let tms = map (\(s, s') -> (s, VarE s')) (zip (map fst ts) tns)
+  let ims = map (\(s, s') -> (s, VarE s')) (zip (map fst is) ins)
+  return (zip tns (map (substitute tms) (map snd ts)), zip ins (map (substitute (tms ++ ims)) (map snd is)))
      
 getFromCEnv :: Env -> Name -> CheckM (Telescope, Telescope, TVal)
-getFromCEnv (_, _, cenv) x = getFromEnv cenv x
+getFromCEnv (_, _, cenv) x = do
+  (ts, as, b) <- getFromEnv cenv x
+  tns <- mapM addFresh (map fst ts)
+  ans <- mapM addFresh (map fst as)
+  let tms = map (\(s, s') -> (s, VarE s')) (zip (map fst ts) tns)
+  let ams = map (\(s, s') -> (s, VarE s')) (zip (map fst as) ans)
+  return (zip tns (map (substitute tms) (map snd ts)), zip ans (map (substitute (tms ++ ams)) (map snd as)), substitute (tms ++ ams) b)
 
 addToTEnv1 :: Env -> Name -> TVal -> Env
 addToTEnv1 (tenv, denv, cenv) x a = (tenv ++ [(x, a)], denv, cenv)
@@ -237,7 +266,7 @@ desugarExpr (ArrowE t1 t2) = do
   desugarExpr (PiE s t1 t2)
 desugarExpr (PiE s t1 t2) = PiE <$> replaceWc s <*> desugarExpr t1 <*> desugarExpr t2
 desugarExpr (LambdaMultiE ns e) = desugarExpr (foldr (\n e' -> LambdaE n e') e ns)
-desugarExpr (ApplyMultiE f as) = desugarExpr (foldl (\a f' -> ApplyE f' a) f as)
+desugarExpr (ApplyMultiE f as) = desugarExpr (foldl (\f' a -> ApplyE f' a) f as)
 desugarExpr (LambdaE n e1) = LambdaE n <$> (desugarExpr e1)
 desugarExpr (ApplyE e1 e2) = ApplyE <$> (desugarExpr e1) <*> (desugarExpr e2)
 desugarExpr (SigmaE n e1 e2) = SigmaE n <$> (desugarExpr e1) <*> (desugarExpr e2)
@@ -245,12 +274,14 @@ desugarExpr (PairE e1 e2) = PairE <$> (desugarExpr e1) <*> (desugarExpr e2)
 desugarExpr (Proj1E e1) = Proj1E <$> (desugarExpr e1)
 desugarExpr (Proj2E e1) = Proj2E <$> (desugarExpr e1)
 desugarExpr (CaseE ts cs) = CaseE <$> (mapM (\(s, e) -> (,) <$> desugarExpr s <*> desugarExpr e) ts) <*> (mapM (\(ps, e) -> (,) <$> (mapM desugarPattern ps) <*> (desugarExpr e)) cs)
+desugarExpr (TypeE c ts is) = TypeE c <$> mapM desugarExpr ts <*> mapM desugarExpr is
+desugarExpr (DataE c es) = DataE c <$> mapM desugarExpr es
 desugarExpr e = return e
--- TODO: DataE and TypeE
 
 desugarPattern :: Pattern -> CheckM Pattern
-desugarPattern (InaccessiblePat e) = desugarExpr e >>= return . InaccessiblePat
-desugarPattern (DataPat n ps) = mapM desugarPattern ps >>= return . (DataPat n)
+desugarPattern Wildcard = PatVar <$> fresh
+desugarPattern (ValuePat e) = ValuePat <$> desugarExpr e
+desugarPattern (DataPat n ps) = DataPat n <$> mapM desugarPattern ps
 desugarPattern p = return p
 
 replaceWc :: Name -> CheckM Name
@@ -291,7 +322,16 @@ check env e@(DataE c xs) a = do
       return (DataE c xs')
     _ -> throwError (TypeDoesNotMatch e a')
 check env (CaseE ts mcs) a = do
-  undefined
+  mcs' <- mapM (\(p, b) -> do
+                   (p', ret) <- checkPattern env ts p
+                   liftIO $ putStrLn "here1"
+                   liftIO $ putStrLn ("(expr, type): " ++ show (b, a))
+                   b' <- check (addToTEnv env ret) b a
+                   liftIO $ putStrLn "here2"
+                   return (p', b')
+               ) mcs
+  -- TODO: coverage check
+  return (CaseE ts mcs')
 check env e a = do
   (b, t) <- infer env e
   isSubtype env a b
@@ -356,7 +396,7 @@ infer _ e@(UniverseE n) = do
   return (UniverseE (n + 1), e)
 infer env e@(TypeE _ _ _) = do
   return (UniverseE 0, e)
-infer _ _ = throwError (Default "infer not implemented")
+infer _ e = throwError (Default ("infer not implemented:" ++ show e))
 
 isSubtype :: Env -> Expr -> Expr -> CheckM ()
 isSubtype env a b = do
@@ -440,7 +480,7 @@ isEqual env (ApplyE s1 t1) (ApplyE s2 t2) = do
     PiE x b c -> do
       isConvertible env t1 t2 b
       return (substitute1 x t1 c)
-    _ -> throwError (Default "isEqual apply")
+    _ -> throwError (Default ("isEqual apply:" ++ show a'))
 isEqual env (Proj1E s) (Proj1E t) = do
   a <- isEqual env s t
   a' <- evalWHNF a
@@ -462,7 +502,7 @@ isEqual env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) =
       areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
       return (UniverseE 0)
     else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
-isEqual _ _ _ = throwError (Default "isEqual not implemented")
+isEqual _ e1 e2 = throwError (Default ("isEqual not implemented:" ++ show (e1, e2)))
 
 evalWHNF :: Expr -> CheckM Expr
 --evalWHNF (VarE n) = undefined
@@ -532,128 +572,173 @@ substitutePat1 _ p = p
 
 --- Type-checking for inductive patterns
 
-type ContextMapping = ([(Name, Pattern)], Context, Context)
+checkPattern :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM ([Pattern], [(Name, TVal)])
+checkPattern env cs ps = do
+  (ps, ret, us) <- checkPattern' env cs ps [] [] []
+  unify us
+  return (ps, ret)
 
-split :: Env -> [Pattern] -> Context -> CheckM (Maybe ContextMapping)
-split env ps delta =
-  match dfs (zip ps delta) (List (Pair PatternM (Pair Something Something)))
-    [[mc| $hs ++ (dataPat $c $qs, ($x, $a)) : $ts -> do
-        let (ps1, delta1) = unzip hs
-        let (ps2, delta2) = unzip ts
-        duv <- evalWHNF a
-        case duv of
-          TypeE d us vs -> do
-            (us1, xi) <- getFromDEnv env d
-            undefined -- need to check us and us1 matchs
-            (us2, theta, duw) <- getFromCEnv env c
-            undefined -- need to check us and us2 matchs
-            case duw of
-              TypeE d' us' ws -> do
-                let zeta = flexible (ps1 ++ qs) (delta1 ++ theta)
-                cm <- unify env zeta (delta1 ++ theta) vs ws xi
-                case cm of
-                  (ms, delta', delta1Theta) -> do
-                    let cm' = (ms ++ [undefined], delta', delta1 ++ [undefined])
-                    case cm' of
-                     (ms', _, _) -> do
-                       return (Just (ms', delta' ++ (undefined delta2 cm'), delta))
-              _ -> throwError (Default "")
-          _ -> throwError (Default "")
-        |],
-     [mc| _ -> return Nothing|]]
-
-updatePat :: ContextMapping -> [Pattern] -> CheckM [Pattern]
-updatePat (ms, _, delta) ps = updatePat' (map (substitutePat ms) (map (\(q, _) -> PatVar q) delta)) ps
-
-updatePat' :: [Pattern] -> [Pattern] -> CheckM [Pattern]
-updatePat' [] [] = return []
-updatePat' (sigma : sigmas) (p : ps) = do
-  q1 <- updatePat1 sigma p
-  q2 <- updatePat' sigmas ps
-  return (q1 ++ q2)
- where
-  updatePat1 sigma@(PatVar _) p = return [p]
-  updatePat1 (InaccessiblePat _) _ = return []
-  updatePat1 (DataPat c sigmas) (DataPat c' ps) =
-    if c == c'
-      then updatePat' sigmas ps
-      else throwError (Default "")
-
-proceed :: Env -> [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
-proceed env ps (ms, delta, gamma) = do
-  Just (ms', delta', _) <- split env ps delta
-  ps' <- updatePat (ms', delta', delta) ps
-  return (ps', (ms ++ ms', delta', gamma))
-
-proceedMulti :: Env -> [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
-proceedMulti env ps sigma@(ms, delta, gamma) = do
-  ret <- split env ps delta
-  case ret of
-    Nothing -> return (ps, sigma)
-    Just _ -> do
-      (ps', sigma') <- proceed env ps sigma
-      proceedMulti env ps' sigma'
-
-checkPats :: Env -> [Pattern] -> Context -> CheckM ([Pattern], ContextMapping)
-checkPats env ps gamma = proceedMulti env ps (idContextMapping gamma)
-
-idContextMapping :: Context -> ContextMapping
-idContextMapping gamma = ([], gamma, gamma)
-
-flexible :: [Pattern] -> Context -> [Name]
-flexible [] [] = []
-flexible (InaccessiblePat _ : ps) ((x, _) : delta) = x : flexible ps delta
-flexible (_ : ps) (_ : delta) = flexible ps delta
-
-unify :: Env -> [Name] -> Context -> [Expr] -> [Expr] -> Context -> CheckM ContextMapping
-unify env zeta gamma [] [] _ = return (idContextMapping gamma)
-unify env zeta gamma (v : vs) (w : ws) ((x, a) : xi) = do
-  (ms, gamma1, _) <- unify1 env zeta gamma v w a
-  (ms', gamma2, _) <- unify env zeta gamma1 undefined undefined xi
-  return (ms', gamma2, gamma)
-
-unify1 :: Env -> [Name] -> Context -> Expr -> Expr -> Expr -> CheckM ContextMapping
-unify1 env zeta gamma (VarE x) v _ | isFlexible x zeta && not (isFree x v) = do
-  gamma' <- addNewContext env x v gamma
-  return ([(x, InaccessiblePat v)], gamma', gamma)
-unify1 env zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
-  if c1 == c2
-    then do
-      a' <- evalWHNF a
-      case a' of
-        TypeE n ts _ -> do
-          (tts, xts, b) <- getFromCEnv env c1
-          (env', ts') <- checkTelescope env ts tts
-          unify env' zeta gamma us vs xts
+checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)])
+checkPattern' _ [] [] pat ret us = return (pat, ret, us)
+checkPattern' env (_ : cs) (Wildcard : ps) pat ret us = throwError (Default "cannot reach here")
+checkPattern' env ((e, a) : cs) (PatVar x : ps) pat ret us =
+  checkPattern' env cs ps (pat ++ [PatVar x]) (ret ++ [(x, a)]) (us ++ [(e, VarE x)])
+checkPattern' env ((e, a) : cs) (ValuePat v : ps) pat ret us = do
+  v' <- check (addToTEnv env ret) v a
+  checkPattern' env cs ps (pat ++ [ValuePat v']) ret (us ++ [(e, v')])
+checkPattern' env ((e, a) : cs) (DataPat c qs : ps) pat ret us = do
+  a' <- evalWHNF a
+  case a' of
+    TypeE _ ats ais -> do
+      (tts, xts, b) <- getFromCEnv env c
+      liftIO $ putStrLn $ "getfromcenv"
+      liftIO $ putStrLn $ show (tts, xts, b)
+      (env', ats') <- checkTelescope env ats tts
+      let xts' = map (\(s, e) -> (VarE s, e)) xts
+      (qs', ret', us') <- checkPattern' env xts' qs [] ret us
+      let b' = (substitute ((zip (map fst tts) ats') ++ (zip (map fst xts) (map pToV qs'))) b)
+      case b' of
+        TypeE _ bts bis -> do
+          (env', bts') <- checkTelescope env bts tts
+          checkPattern' env cs ps (pat ++ [DataPat c qs']) ret' (us' ++ [(e, pToV (DataPat c qs'))] ++ zip ats' bts' ++ zip ais bis)
         _ -> throwError (Default "")
-    else throwError (Default "")
-unify1 env _ gamma u v a = do
-  isConvertible env u v a
-  return (idContextMapping gamma)
+    _ -> throwError (Default "")
 
-isFlexible :: Name -> [Name] -> Bool
-isFlexible x zeta = elem x zeta
+pToV :: Pattern -> Expr
+pToV (PatVar s) = VarE s
+pToV (ValuePat v) = v
+pToV (DataPat c ps) = DataE c (map pToV ps)
 
-isFree :: Name -> Expr -> Bool
-isFree _ _ = False -- TODO: this function is undefined
+unify :: [(Expr, Expr)] -> CheckM ()
+unify [] = return ()
+unify us = do
+  liftIO $ putStrLn $ "unify: " ++ show us
+  return ()
 
-isAccecible :: Name -> [Pattern] -> Bool
-isAccecible x [] = False
-isAccecible x (p : ps) = isAccecible1 x p || isAccecible x ps
+--- Old code
 
-isAccecible1 :: Name -> Pattern -> Bool
-isAccecible1 x (PatVar y) | x == y = True
-isAccecible1 _ (PatVar _) = False
-isAccecible1 x (DataPat _ ps) = isAccecible x ps
-isAccecible1 x (InaccessiblePat _) = False
+-- type ContextMapping = ([(Name, Pattern)], Context, Context)
 
-addNewContext :: Env -> Name -> Expr -> Context -> CheckM Context
-addNewContext env x p cs =
-  match dfs cs (List (Pair Eql Something))
-    [[mc| $gamma ++ (#x, $a) : $delta -> do
-        check (addToTEnv env gamma) p a
-        return (gamma ++ map (\(y, b) -> (y, substitute1 x p b)) delta) |],
-     [mc| _ -> throwError (UnboundVariable x) |]]
+-- split :: Env -> [Pattern] -> Context -> CheckM (Maybe ContextMapping)
+-- split env ps delta =
+--   match dfs (zip ps delta) (List (Pair PatternM (Pair Something Something)))
+--     [[mc| $hs ++ (dataPat $c $qs, ($x, $a)) : $ts -> do
+--         let (ps1, delta1) = unzip hs
+--         let (ps2, delta2) = unzip ts
+--         duv <- evalWHNF a
+--         case duv of
+--           TypeE d us vs -> do
+--             (us1, xi) <- getFromDEnv env d
+--             undefined -- need to check us and us1 matchs
+--             (us2, theta, duw) <- getFromCEnv env c
+--             undefined -- need to check us and us2 matchs
+--             case duw of
+--               TypeE d' us' ws -> do
+--                 let zeta = flexible (ps1 ++ qs) (delta1 ++ theta)
+--                 cm <- unify env zeta (delta1 ++ theta) vs ws xi
+--                 case cm of
+--                   (ms, delta', delta1Theta) -> do
+--                     let cm' = (ms ++ [undefined], delta', delta1 ++ [undefined])
+--                     case cm' of
+--                      (ms', _, _) -> do
+--                        return (Just (ms', delta' ++ (undefined delta2 cm'), delta))
+--               _ -> throwError (Default "")
+--           _ -> throwError (Default "")
+--         |],
+--      [mc| _ -> return Nothing|]]
+
+-- updatePat :: ContextMapping -> [Pattern] -> CheckM [Pattern]
+-- updatePat (ms, _, delta) ps = updatePat' (map (substitutePat ms) (map (\(q, _) -> PatVar q) delta)) ps
+
+-- updatePat' :: [Pattern] -> [Pattern] -> CheckM [Pattern]
+-- updatePat' [] [] = return []
+-- updatePat' (sigma : sigmas) (p : ps) = do
+--   q1 <- updatePat1 sigma p
+--   q2 <- updatePat' sigmas ps
+--   return (q1 ++ q2)
+--  where
+--   updatePat1 sigma@(PatVar _) p = return [p]
+--   updatePat1 (ValuePat _) _ = return []
+--   updatePat1 (DataPat c sigmas) (DataPat c' ps) =
+--     if c == c'
+--       then updatePat' sigmas ps
+--       else throwError (Default "")
+
+-- proceed :: Env -> [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
+-- proceed env ps (ms, delta, gamma) = do
+--   Just (ms', delta', _) <- split env ps delta
+--   ps' <- updatePat (ms', delta', delta) ps
+--   return (ps', (ms ++ ms', delta', gamma))
+
+-- proceedMulti :: Env -> [Pattern] -> ContextMapping -> CheckM ([Pattern], ContextMapping)
+-- proceedMulti env ps sigma@(ms, delta, gamma) = do
+--   ret <- split env ps delta
+--   case ret of
+--     Nothing -> return (ps, sigma)
+--     Just _ -> do
+--       (ps', sigma') <- proceed env ps sigma
+--       proceedMulti env ps' sigma'
+
+-- checkPats :: Env -> [Pattern] -> Context -> CheckM ([Pattern], ContextMapping)
+-- checkPats env ps gamma = proceedMulti env ps (idContextMapping gamma)
+
+-- idContextMapping :: Context -> ContextMapping
+-- idContextMapping gamma = ([], gamma, gamma)
+
+-- flexible :: [Pattern] -> Context -> [Name]
+-- flexible [] [] = []
+-- flexible (ValuePat _ : ps) ((x, _) : delta) = x : flexible ps delta
+-- flexible (_ : ps) (_ : delta) = flexible ps delta
+
+-- unify :: Env -> [Name] -> Context -> [Expr] -> [Expr] -> Context -> CheckM ContextMapping
+-- unify env zeta gamma [] [] _ = return (idContextMapping gamma)
+-- unify env zeta gamma (v : vs) (w : ws) ((x, a) : xi) = do
+--   (ms, gamma1, _) <- unify1 env zeta gamma v w a
+--   (ms', gamma2, _) <- unify env zeta gamma1 undefined undefined xi
+--   return (ms', gamma2, gamma)
+
+-- unify1 :: Env -> [Name] -> Context -> Expr -> Expr -> Expr -> CheckM ContextMapping
+-- unify1 env zeta gamma (VarE x) v _ | isFlexible x zeta && not (isFree x v) = do
+--   gamma' <- addNewContext env x v gamma
+--   return ([(x, ValuePat v)], gamma', gamma)
+-- unify1 env zeta gamma (ApplyMultiE (VarE c1) us) (ApplyMultiE (VarE c2) vs) a =
+--   if c1 == c2
+--     then do
+--       a' <- evalWHNF a
+--       case a' of
+--         TypeE n ts _ -> do
+--           (tts, xts, b) <- getFromCEnv env c1
+--           (env', ts') <- checkTelescope env ts tts
+--           unify env' zeta gamma us vs xts
+--         _ -> throwError (Default "")
+--     else throwError (Default "")
+-- unify1 env _ gamma u v a = do
+--   isConvertible env u v a
+--   return (idContextMapping gamma)
+
+-- isFlexible :: Name -> [Name] -> Bool
+-- isFlexible x zeta = elem x zeta
+
+-- isFree :: Name -> Expr -> Bool
+-- isFree _ _ = False -- TODO: this function is undefined
+
+-- isAccecible :: Name -> [Pattern] -> Bool
+-- isAccecible x [] = False
+-- isAccecible x (p : ps) = isAccecible1 x p || isAccecible x ps
+
+-- isAccecible1 :: Name -> Pattern -> Bool
+-- isAccecible1 x (PatVar y) | x == y = True
+-- isAccecible1 _ (PatVar _) = False
+-- isAccecible1 x (DataPat _ ps) = isAccecible x ps
+-- isAccecible1 x (ValuePat _) = False
+
+-- addNewContext :: Env -> Name -> Expr -> Context -> CheckM Context
+-- addNewContext env x p cs =
+--   match dfs cs (List (Pair Eql Something))
+--     [[mc| $gamma ++ (#x, $a) : $delta -> do
+--         check (addToTEnv env gamma) p a
+--         return (gamma ++ map (\(y, b) -> (y, substitute1 x p b)) delta) |],
+--     [mc| _ -> throwError (UnboundVariable x) |]]
      
 ---
 --- Sample programs without pattern matching
@@ -746,10 +831,10 @@ plusZeroDef = DefCaseE "plusZero" [("n", TypeE "Nat" [] [])] (TypeE "Eq" [TypeE 
    ([DataPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
 
 -- (define (axiomK (A : (Universe 0)) (a : A) (P : <Eq {A a} {a}> -> (Universe 0)) (p : (P <refl>)) (e : <Eq {A a} {a}>)) : (P e)
---   {[[$A $a $P $p <refl>] p]})
+--   {[[_ _ _ $p <refl>] p]})
 axiomKDef :: TopExpr
-axiomKDef = DefCaseE "axiomK" [("A", (UniverseE 0)), ("a", (VarE "A")), ("P", (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")])), ("p", (ApplyE (VarE "P") (DataE "refl" []))), ("e", (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]))] (ApplyE (VarE "P") (VarE "e"))
-  [([PatVar "A", PatVar "a", PatVar "P", PatVar "p", DataPat "refl" []], VarE "p")]
+axiomKDef = DefCaseE "axiomK" [("A", (UniverseE 0)), ("a", (VarE "A")), ("P", (ArrowE (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]) (UniverseE 0))), ("p", (ApplyE (VarE "P") (DataE "refl" []))), ("e", (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]))] (ApplyE (VarE "P") (VarE "e"))
+  [([Wildcard, Wildcard, Wildcard, PatVar "p", DataPat "refl" []], VarE "p")]
 
 --(data Lte {} {Nat Nat}
 --  {[lz (y : Nat) : (Lte <zero> y)]
@@ -764,8 +849,8 @@ lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
 --   [[#<suc m'> #<suc n'> <ls $m' $n' $x> <ls #n' #m' $y>] (cong suc (antisym m' n' x y))]})
 antisymDef :: TopExpr
 antisymDef = DefCaseE "antisym" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
-  [([InaccessiblePat (DataE "zero" []), InaccessiblePat (DataE "zero" []), DataPat "lz" [InaccessiblePat (DataE "zero" [])], DataPat "lz" [InaccessiblePat (DataE "zero" [])]], DataE "refl" []),
-   ([InaccessiblePat (DataE "suc" [VarE "k"]), InaccessiblePat (DataE "suc" [VarE "l"]), DataPat"ls" [PatVar "k", PatVar "l", PatVar "x"], DataPat "ls" [InaccessiblePat (VarE "l"), InaccessiblePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
+  [([ValuePat (DataE "zero" []), ValuePat (DataE "zero" []), DataPat "lz" [ValuePat (DataE "zero" [])], DataPat "lz" [ValuePat (DataE "zero" [])]], DataE "refl" []),
+   ([ValuePat (DataE "suc" [VarE "k"]), ValuePat (DataE "suc" [VarE "l"]), DataPat"ls" [PatVar "k", PatVar "l", PatVar "x"], DataPat "ls" [ValuePat (VarE "l"), ValuePat (VarE "k"), PatVar "y"]], DataE "suc" [ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
 
 --(data (Vec {(A : (Universe 0))} {(_ : Nat)}
 --  {[nil  : (Vec A <zero>)]
