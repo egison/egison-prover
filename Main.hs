@@ -21,28 +21,30 @@ main = do
   ret <- runCheckM (checkTopExpr env idDef')
   case ret of
     Left err -> print err
-    Right expr -> print (show expr)
+    Right expr -> putStrLn (show expr)
   ret <- runCheckM (checkTopExpr env compDef')
   case ret of
     Left err -> print err
-    Right expr -> print (show expr)
+    Right expr -> putStrLn (show expr)
   ret <- runCheckM (checkTopExpr env zeroDef')
   case ret of
     Left err -> print err
-    Right expr -> print (show expr)
+    Right expr -> putStrLn (show expr)
   ret <- runCheckM (checkTopExpr env oneDef')
   case ret of
     Left err -> print err
-    Right expr -> print (show expr)
+    Right expr -> putStrLn (show expr)
   ret <- runCheckM (checkTopExpr env reflDef')
   case ret of
     Left err -> print err
-    Right expr -> print (show expr)
+    Right expr -> putStrLn (show expr)
   ret <- runCheckM (checkTopExpr env iReflDef')
   case ret of
     Left err -> print err
-    Right expr -> print (show expr)
+    Right expr -> putStrLn (show expr)
+  putStrLn (show natDef)
   putStrLn (show natDef')
+  putStrLn (show congDef)
   putStrLn (show congDef')
   putStrLn "end"
   
@@ -131,11 +133,12 @@ data Expr
   | UnitE
   | TypeE Name [Expr] [Expr]
   | DataE Name [Expr]
-  | CaseE [Expr] [([Pattern], Expr)]
+  | CaseE [(Expr, TVal)] [([Pattern], Expr)]
  deriving Show
 
 data Pattern
-  = PatVar Name
+  = Wildcard
+  | PatVar Name
   | DataPat Name [Pattern]
   | InaccessiblePat Expr
  deriving Show
@@ -225,8 +228,8 @@ desugarTopExpr (DefFunE n as t e) = do
   let e' = foldr (\(s, _) e' -> LambdaE s e') e as
   desugarTopExpr (DefE n t' e')
 desugarTopExpr (DefCaseE n as t cs) = do
-  as' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) as
-  desugarTopExpr (DefFunE n as' t (CaseE (map (VarE . fst) as') cs))
+  as'  <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) as
+  desugarTopExpr (DefFunE n as' t (CaseE (map (\(s, e) -> (VarE s, e)) as') cs))
   
 desugarExpr :: Expr -> CheckM Expr
 desugarExpr (ArrowE t1 t2) = do
@@ -241,7 +244,7 @@ desugarExpr (SigmaE n e1 e2) = SigmaE n <$> (desugarExpr e1) <*> (desugarExpr e2
 desugarExpr (PairE e1 e2) = PairE <$> (desugarExpr e1) <*> (desugarExpr e2)
 desugarExpr (Proj1E e1) = Proj1E <$> (desugarExpr e1)
 desugarExpr (Proj2E e1) = Proj2E <$> (desugarExpr e1)
-desugarExpr (CaseE ts cs) = CaseE <$> (mapM desugarExpr ts) <*> (mapM (\(ps, e) -> (,) <$> (mapM desugarPattern ps) <*> (desugarExpr e)) cs)
+desugarExpr (CaseE ts cs) = CaseE <$> (mapM (\(s, e) -> (,) <$> desugarExpr s <*> desugarExpr e) ts) <*> (mapM (\(ps, e) -> (,) <$> (mapM desugarPattern ps) <*> (desugarExpr e)) cs)
 desugarExpr e = return e
 -- TODO: DataE and TypeE
 
@@ -732,7 +735,7 @@ plusDef = DefCaseE "plus" [("x", TypeE "Nat" [] []), ("y", TypeE "Nat" [] [])] (
 --  {[[_ _ _ <refl>] <refl>]})
 congDef :: TopExpr
 congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
-  [([PatVar "f", DataPat "refl" []], DataE "refl" [])]
+  [([Wildcard, Wildcard, Wildcard, DataPat "refl" []], DataE "refl" [])]
 
 --(define (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
