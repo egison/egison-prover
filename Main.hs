@@ -13,41 +13,64 @@ import qualified Control.Egison as Egison
 
 main :: IO ()
 main = do
-  (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef', congDef', axiomKDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, axiomKDef])
+  (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef', congDef', plusZeroDef', axiomKDef', lteDef', antisymDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, plusZeroDef, axiomKDef, lteDef, antisymDef])
+  let envV = initTopVEnv topExprs
   let envT = initTopTEnv topExprs
   let envD = initTopDEnv topExprs
   let envC = initTopCEnv topExprs
-  let env = (envT, envD, envC)
+  let env = (envV, envT, envD, envC)
+  liftIO $ putStrLn "idDef"
   ret <- runCheckM (checkTopExpr env idDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "compDef"
   ret <- runCheckM (checkTopExpr env compDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "zeroDef"
   ret <- runCheckM (checkTopExpr env zeroDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "oneDef"
   ret <- runCheckM (checkTopExpr env oneDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "reflDef"
   ret <- runCheckM (checkTopExpr env reflDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "iReflDef"
   ret <- runCheckM (checkTopExpr env iReflDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "plusDef"
   ret <- runCheckM (checkTopExpr env plusDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
-  putStrLn "start"
+  liftIO $ putStrLn "congDef"
+  ret <- runCheckM (checkTopExpr env congDef')
+  case ret of
+    Left err -> print err
+    Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "plusZeroDef"
+  ret <- runCheckM (checkTopExpr env plusZeroDef')
+  case ret of
+    Left err -> print err
+    Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "axiomKDef"
   ret <- runCheckM (checkTopExpr env axiomKDef')
+  case ret of
+    Left err -> print err
+    Right expr -> putStrLn (show expr)
+  liftIO $ putStrLn "anitisymDef"
+  ret <- runCheckM (checkTopExpr env antisymDef')
   case ret of
     Left err -> print err
     Right expr -> putStrLn (show expr)
@@ -172,7 +195,8 @@ dataPatM _ _ = (Something, (List PatternM))
 type TVal = Expr
 type Val = Expr
 
-type Env = (TEnv, DEnv, CEnv)
+type Env = (VEnv, TEnv, DEnv, CEnv)
+type VEnv = [(Name, Expr)] -- Value environment
 type TEnv = [(Name, TVal)] -- Type environment
 type DEnv = [(Name, (Telescope, Indices))] -- Datatype enviroment
 type CEnv = [(Name, (Telescope, Telescope, TVal))] -- Constructor enviroment
@@ -181,10 +205,10 @@ type Context = [(Name, TVal)]
 type Telescope = [(Name, TVal)]
 type Indices = [(Name, TVal)]
 
-data Kind
-  = ValueK
-  | DatatypeK
-  | ConstructorK
+initTopVEnv :: [TopExpr] -> VEnv
+initTopVEnv [] = []
+initTopVEnv (DefE n _ e : rs) = (n, e) : (initTopVEnv rs)
+initTopVEnv (_ : rs) = initTopVEnv rs
 
 initTopTEnv :: [TopExpr] -> TEnv
 initTopTEnv [] = []
@@ -205,15 +229,24 @@ initTopCEnv (_ : rs) = initTopCEnv rs
 
 getFromEnv :: [(Name, a)] -> Name -> CheckM a
 getFromEnv env x =
-  match dfs env (List (Pair Eql Something))
-    [[mc| _ ++ (#x, $t) : _ -> return t |],
-     [mc| _ -> throwError (UnboundVariable x) |]]
+  case getFromEnv' env x of
+    Nothing -> throwError (UnboundVariable x)
+    Just t  -> return t
 
+getFromEnv' :: [(Name, a)] -> Name -> Maybe a
+getFromEnv' env x =
+  match dfs env (List (Pair Eql Something))
+    [[mc| _ ++ (#x, $t) : _ -> Just t |],
+     [mc| _ -> Nothing |]]
+
+getFromVEnv :: Env -> Name -> CheckM (Maybe Expr)
+getFromVEnv (venv, _, _, _) x = return (getFromEnv' venv x) -- TODO: alpha conversion
+     
 getFromTEnv :: Env -> Name -> CheckM TVal
-getFromTEnv (tenv, _, _) x = getFromEnv tenv x
+getFromTEnv (_, tenv, _, _) x = getFromEnv tenv x
      
 getFromDEnv :: Env -> Name -> CheckM (Telescope, Indices)
-getFromDEnv (_, denv, _) x = do
+getFromDEnv (_, _, denv, _) x = do
   (ts, is) <- getFromEnv denv x
   tns <- mapM addFresh (map fst ts)
   ins <- mapM addFresh (map fst is)
@@ -222,7 +255,7 @@ getFromDEnv (_, denv, _) x = do
   return (zip tns (map (substitute tms) (map snd ts)), zip ins (map (substitute (tms ++ ims)) (map snd is)))
      
 getFromCEnv :: Env -> Name -> CheckM (Telescope, Telescope, TVal)
-getFromCEnv (_, _, cenv) x = do
+getFromCEnv (_, _, _, cenv) x = do
   (ts, as, b) <- getFromEnv cenv x
   tns <- mapM addFresh (map fst ts)
   ans <- mapM addFresh (map fst as)
@@ -231,10 +264,10 @@ getFromCEnv (_, _, cenv) x = do
   return (zip tns (map (substitute tms) (map snd ts)), zip ans (map (substitute (tms ++ ams)) (map snd as)), substitute (tms ++ ams) b)
 
 addToTEnv1 :: Env -> Name -> TVal -> Env
-addToTEnv1 (tenv, denv, cenv) x a = (tenv ++ [(x, a)], denv, cenv)
+addToTEnv1 (venv, tenv, denv, cenv) x a = (venv, tenv ++ [(x, a)], denv, cenv)
                              
 addToTEnv :: Env -> Context -> Env
-addToTEnv (tenv, denv, cenv) cs = (tenv ++ cs, denv, cenv)
+addToTEnv (venv, tenv, denv, cenv) cs = (venv, tenv ++ cs, denv, cenv)
                              
 --- Desugar
 
@@ -297,14 +330,18 @@ checkTopExpr env (DefE n t e) = do
 
 check :: Env -> Expr -> Expr -> CheckM Expr
 check env (LambdaE x e) a = do
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     PiE y b c | x == y -> do
       e' <- check (addToTEnv1 env x b) e c
       return (LambdaE x e')
+    PiE y b c -> do
+      x' <- addFresh x
+      e' <- check (addToTEnv1 env x' b) (substitute1 x (VarE x') e) (substitute1 y (VarE x') c)
+      return (LambdaE x' e')
     _ -> throwError (TypeDoesNotMatch (LambdaE x e) a')
 check env e@(PairE e1 e2) a = do
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     SigmaE x b c -> do
       s <- check env e1 b
@@ -312,7 +349,7 @@ check env e@(PairE e1 e2) a = do
       return (PairE s t)
     _ -> throwError (TypeDoesNotMatch e a')
 check env e@(DataE c xs) a = do
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     TypeE _ ts _ -> do
       (tts, xts, b) <- getFromCEnv env c
@@ -323,8 +360,8 @@ check env e@(DataE c xs) a = do
     _ -> throwError (TypeDoesNotMatch e a')
 check env (CaseE ts mcs) a = do
   mcs' <- mapM (\(p, b) -> do
-                   (p', ret) <- checkPattern env ts p
-                   b' <- check (addToTEnv env ret) b a
+                   (p', tRet, vRet) <- checkPattern env ts p
+                   b' <- check (addToTEnv env tRet) b (substitute vRet a)
                    return (p', b')
                ) mcs
   -- TODO: coverage check
@@ -347,7 +384,7 @@ infer env e@(VarE x) = do
   return (a, e)
 infer env (ApplyE e1 e2) = do
   (a, s) <- infer env e1
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     PiE x b c -> do
       t <- check env e2 b
@@ -355,14 +392,14 @@ infer env (ApplyE e1 e2) = do
     _ -> throwError (ShouldBe "function" e1)
 infer env (Proj1E e) = do
   (a, t) <- infer env e
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     SigmaE _ b _ -> do
       return (b, Proj1E t)
     _ -> throwError (ShouldBe "pair" e)
 infer env (Proj2E e) = do
   (a, t) <- infer env e
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     SigmaE x _ c -> do
       return (substitute1 x (Proj1E t) c, Proj2E t)
@@ -370,8 +407,8 @@ infer env (Proj2E e) = do
 infer env (PiE x e1 e2) = do
   (c1, a) <- infer env e1
   (c2, b) <- infer (addToTEnv1 env x a) e2
-  c1' <- evalWHNF c1
-  c2' <- evalWHNF c2
+  c1' <- evalWHNF env c1
+  c2' <- evalWHNF env c2
   case (c1', c2') of
     (UniverseE i, UniverseE j) -> do
       return (UniverseE (max i j), PiE x a b)
@@ -379,8 +416,8 @@ infer env (PiE x e1 e2) = do
 infer env (SigmaE x e1 e2) = do
   (c1, a) <- infer env e1
   (c2, b) <- infer (addToTEnv1 env x a) e2
-  c1' <- evalWHNF c1
-  c2' <- evalWHNF c2
+  c1' <- evalWHNF env c1
+  c2' <- evalWHNF env c2
   case (c1', c2') of
     (UniverseE i, UniverseE j) -> do
       return (UniverseE (max i j), SigmaE x a b)
@@ -397,8 +434,8 @@ infer _ e = throwError (Default ("infer not implemented:" ++ show e))
 
 isSubtype :: Env -> Expr -> Expr -> CheckM ()
 isSubtype env a b = do
-  a' <- evalWHNF a
-  b' <- evalWHNF b
+  a' <- evalWHNF env a
+  b' <- evalWHNF env b
   isSubtype' env a' b'
 
 isSubtype' :: Env -> Expr -> Expr -> CheckM ()
@@ -425,9 +462,9 @@ areConvertible env (x:xs) (y:ys) ((n, xt):xts) = do
 
 isConvertible :: Env -> Expr -> Expr -> Expr -> CheckM ()
 isConvertible env s t a = do
-  s' <- evalWHNF s
-  t' <- evalWHNF t
-  a' <- evalWHNF a
+  s' <- evalWHNF env s
+  t' <- evalWHNF env t
+  a' <- evalWHNF env a
   isConvertible' env s' t' a'
 
 isConvertible' :: Env -> Expr -> Expr -> Expr -> CheckM ()
@@ -469,25 +506,25 @@ isEqual env (VarE x) (VarE y) =
     then do
       a <- getFromTEnv env x
       return a
-    else throwError (Default "isEqual var")
+    else throwError (Default ("isEqual var: " ++ show (x, y)))
 isEqual env (ApplyE s1 t1) (ApplyE s2 t2) = do
   a <- isEqual env s1 s2
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     PiE x b c -> do
       isConvertible env t1 t2 b
       return (substitute1 x t1 c)
-    _ -> throwError (Default ("isEqual apply:" ++ show a'))
+    _ -> throwError (Default ("isEqual apply: " ++ show a'))
 isEqual env (Proj1E s) (Proj1E t) = do
   a <- isEqual env s t
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     SigmaE x b c -> do
       return b
     _ -> throwError (Default "isEqual proj1")
 isEqual env (Proj2E s) (Proj2E t) = do
   a <- isEqual env s t
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     SigmaE x b c -> do
       return (substitute1 x (Proj1E s) c)
@@ -501,24 +538,29 @@ isEqual env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) =
     else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
 isEqual _ e1 e2 = throwError (Default ("isEqual not implemented:" ++ show (e1, e2)))
 
-evalWHNF :: Expr -> CheckM Expr
---evalWHNF (VarE n) = undefined
-evalWHNF (ApplyE e1 e2) = do
-  e1' <- evalWHNF e1
+evalWHNF :: Env -> Expr -> CheckM Expr
+evalWHNF env (VarE n) = do
+  v <- getFromVEnv env n
+  case v of
+    Nothing -> return (VarE n)
+    Just e  -> return e
+evalWHNF env (ApplyE e1 e2) = do
+  e1' <- evalWHNF env e1
   case e1' of
     LambdaE x b -> return (substitute1 x e2 b)
     _ -> return (ApplyE e1' e2)
-evalWHNF (Proj1E e) = do
-  e' <- evalWHNF e
+evalWHNF env (Proj1E e) = do
+  e' <- evalWHNF env e
   case e' of
-    PairE e1 _ -> evalWHNF e1
+    PairE e1 _ -> evalWHNF env e1
     _ -> return e'
-evalWHNF (Proj2E e) = do
-  e' <- evalWHNF e
+evalWHNF env (Proj2E e) = do
+  e' <- evalWHNF env e
   case e' of
-    PairE _ e2 -> evalWHNF e2
+    PairE _ e2 -> evalWHNF env e2
     _ -> return e'
-evalWHNF e = return e
+evalWHNF env (CaseE ts mcs) = undefined
+evalWHNF _ e = return e
 
 isNeutral :: Expr -> Bool
 isNeutral (VarE _) = True
@@ -569,11 +611,11 @@ substitutePat1 _ p = p
 
 --- Type-checking for inductive patterns
 
-checkPattern :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM ([Pattern], [(Name, TVal)])
+checkPattern :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM ([Pattern], [(Name, TVal)], [(Name, Expr)])
 checkPattern env cs ps = do
-  (ps, ret, us) <- checkPattern' env cs ps [] [] []
-  unify us
-  return (ps, ret)
+  (ps, tRet, us) <- checkPattern' env cs ps [] [] []
+  vRet <- unify us
+  return (ps, map (\(s, t) -> (s, substitute vRet t)) tRet, vRet)
 
 checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)])
 checkPattern' _ [] [] pat ret us = return (pat, ret, us)
@@ -584,7 +626,7 @@ checkPattern' env ((e, a) : cs) (ValuePat v : ps) pat ret us = do
   v' <- check (addToTEnv env ret) v a
   checkPattern' env cs ps (pat ++ [ValuePat v']) ret (us ++ [(e, v')])
 checkPattern' env ((e, a) : cs) (DataPat c qs : ps) pat ret us = do
-  a' <- evalWHNF a
+  a' <- evalWHNF env a
   case a' of
     TypeE _ ats ais -> do
       (tts, xts, b) <- getFromCEnv env c
@@ -604,11 +646,12 @@ pToV (PatVar s) = VarE s
 pToV (ValuePat v) = v
 pToV (DataPat c ps) = DataE c (map pToV ps)
 
-unify :: [(Expr, Expr)] -> CheckM ()
-unify [] = return ()
-unify us = do
-  liftIO $ putStrLn $ "unify: " ++ show us
-  return ()
+unify :: [(Expr, Expr)] -> CheckM [(Name, Expr)]
+unify [] = return []
+unify ((VarE ('$' : _), _) : us) = unify us -- Ignore wildcard
+unify ((_, VarE ('$' : _)) : us) = unify us -- Ignore wildcard
+unify ((VarE s, e) : us) = ((s, e) :) <$> unify us
+unify _ = throwError (Default "not implemented")
 
 -- flexible :: [Pattern] -> Context -> [Name]
 -- flexible [] [] = []
@@ -707,11 +750,11 @@ plusDef = DefCaseE "plus" [("x", TypeE "Nat" [] []), ("y", TypeE "Nat" [] [])] (
   [([DataPat "zero" [], PatVar "n"], VarE "n"),
    ([DataPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
 
---(define (cong (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
---  {[[_ _ _ <refl>] <refl>]})
+--(define (cong (A : (Universe 0)) (B : (Universe 0)) (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
+--  {[[_ _ _ _ _ <refl>] <refl>]})
 congDef :: TopExpr
-congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
-  [([Wildcard, Wildcard, Wildcard, DataPat "refl" []], DataE "refl" [])]
+congDef = DefCaseE "cong" [("A", (UniverseE 0)), ("B", (UniverseE 0)), ("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
+  [([Wildcard, Wildcard, Wildcard, Wildcard, Wildcard, DataPat "refl" []], DataE "refl" [])]
 
 --(define (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
@@ -719,17 +762,17 @@ congDef = DefCaseE "cong" [("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"),
 plusZeroDef :: TopExpr
 plusZeroDef = DefCaseE "plusZero" [("n", TypeE "Nat" [] [])] (TypeE "Eq" [TypeE "Nat" [] [], ApplyMultiE (VarE "plus") [(VarE "n"), (DataE "zero" [])]] [VarE "n"])
   [([DataPat "zero" []], DataE "refl" []),
-   ([DataPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
+   ([DataPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [TypeE "Nat" [] [], TypeE "Nat" [] [], VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
 
 -- (define (axiomK (A : (Universe 0)) (a : A) (P : <Eq {A a} {a}> -> (Universe 0)) (p : (P <refl>)) (e : <Eq {A a} {a}>)) : (P e)
---   {[[_ _ _ $p <refl>] p]})
+--   {[[_ _ _ _ <refl>] p]})
 axiomKDef :: TopExpr
 axiomKDef = DefCaseE "axiomK" [("A", (UniverseE 0)), ("a", (VarE "A")), ("P", (ArrowE (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]) (UniverseE 0))), ("p", (ApplyE (VarE "P") (DataE "refl" []))), ("e", (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]))] (ApplyE (VarE "P") (VarE "e"))
-  [([Wildcard, Wildcard, Wildcard, PatVar "p", DataPat "refl" []], VarE "p")]
+  [([Wildcard, Wildcard, Wildcard, Wildcard, DataPat "refl" []], VarE "p")]
 
 --(data Lte {} {Nat Nat}
---  {[lz (y : Nat) : (Lte <zero> y)]
---   [ls (x : Nat) (y : Nat) (_ : (Lte x y)) : (Lte <suc x> <suc y>)]})
+--  {[lz (n : Nat) : (Lte <zero> n)]
+--   [ls (m : Nat) (n : Nat) (_ : (Lte m n)) : (Lte <suc m> <suc n>)]})
 lteDef :: TopExpr
 lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
   [("lz", [("n", TypeE "Nat" [] [])], TypeE "Lte" [] [DataE "zero" [], VarE "n"]),
@@ -737,11 +780,11 @@ lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
 
 --(define (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
 --  {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]
---   [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong (lambda [$k] <suc k>) (antisym m' n' x y))]})
+--   [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong Nat Nat (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})
 antisymDef :: TopExpr
 antisymDef = DefCaseE "antisym" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
   [([DataPat "zero" [], DataPat "zero" [], DataPat "lz" [ValuePat (DataE "zero" [])], DataPat "lz" [ValuePat (DataE "zero" [])]], DataE "refl" []),
-   ([DataPat "suc" [PatVar "m'"], DataPat "suc" [PatVar "n'"], DataPat"ls" [ValuePat (VarE "m'"), ValuePat (VarE "n'"), PatVar "x"], DataPat "ls" [ValuePat (VarE "n'"), ValuePat (VarE "m'"), PatVar "y"]], ApplyMultiE (VarE "cong") [LambdaMultiE ["k"] (DataE "suc" [VarE "k"]), ApplyMultiE (VarE "antisym") [VarE "k", VarE "l", VarE "x", VarE "y"]])]
+   ([DataPat "suc" [PatVar "m'"], DataPat "suc" [PatVar "n'"], DataPat"ls" [ValuePat (VarE "m'"), ValuePat (VarE "n'"), PatVar "x"], DataPat "ls" [ValuePat (VarE "n'"), ValuePat (VarE "m'"), PatVar "y"]], ApplyMultiE (VarE "cong") [TypeE "Nat" [] [], TypeE "Nat" [] [], LambdaE "k" (DataE "suc" [VarE "k"]), VarE "m'", VarE "n'", ApplyMultiE (VarE "antisym") [VarE "m'", VarE "n'", VarE "x", VarE "y"]])]
 
 --(data (Vec {(A : (Universe 0))} {(_ : Nat)}
 --  {[nil  : (Vec A <zero>)]
