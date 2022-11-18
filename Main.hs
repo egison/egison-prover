@@ -14,6 +14,7 @@ import qualified Control.Egison as Egison
 main :: IO ()
 main = do
   (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef', congDef', plusZeroDef', axiomKDef', lteDef', antisymDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, plusZeroDef, axiomKDef, lteDef, antisymDef])
+--  putStrLn (show topExprs)
   let envV = initTopVEnv topExprs
   let envT = initTopTEnv topExprs
   let envD = initTopDEnv topExprs
@@ -80,6 +81,7 @@ main = do
 --  putStrLn (show congDef')
 --  putStrLn (show plusDef)
 --  putStrLn (show plusDef')
+  putStrLn (show plusZeroDef')
   putStrLn "end"
   
 --- Monad
@@ -281,13 +283,17 @@ desugarTopExpr (DataDecE n as is cs) = do
                   e' <- desugarExpr e
                   return (s, ts', e')) cs
   return (DataDecE n as' is' cs')
+desugarTopExpr (DefE n t (LambdaMultiE as e)) = do
+  t' <- desugarExpr t
+  e' <- desugarExpr e
+  return (DefE n t' (LambdaMultiE as e'))
 desugarTopExpr (DefE n t e) = do
   t' <- desugarExpr t
   e' <- desugarExpr e
   return (DefE n t' e')
 desugarTopExpr (DefFunE n as t e) = do
   let t' = foldr (\(s, u) t' -> PiE s u t') t as
-  let e' = foldr (\(s, _) e' -> LambdaE s e') e as
+  let e' = LambdaMultiE (map fst as) e
   desugarTopExpr (DefE n t' e')
 desugarTopExpr (DefCaseE n as t cs) = do
   as'  <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) as
@@ -299,6 +305,7 @@ desugarExpr (ArrowE t1 t2) = do
   desugarExpr (PiE s t1 t2)
 desugarExpr (PiE s t1 t2) = PiE <$> replaceWc s <*> desugarExpr t1 <*> desugarExpr t2
 desugarExpr (LambdaMultiE ns e) = desugarExpr (foldr (\n e' -> LambdaE n e') e ns)
+desugarExpr (ApplyMultiE (VarE s) as) = ApplyMultiE (VarE s) <$> mapM desugarExpr as
 desugarExpr (ApplyMultiE f as) = desugarExpr (foldl (\f' a -> ApplyE f' a) f as)
 desugarExpr (LambdaE n e1) = LambdaE n <$> (desugarExpr e1)
 desugarExpr (ApplyE e1 e2) = ApplyE <$> (desugarExpr e1) <*> (desugarExpr e2)
@@ -329,6 +336,7 @@ checkTopExpr env (DefE n t e) = do
   return (DefE n t e')
 
 check :: Env -> Expr -> Expr -> CheckM Expr
+check env (LambdaMultiE xs e) a = check env (foldr (\x e' -> LambdaE x e') e xs) a
 check env (LambdaE x e) a = do
   a' <- evalWHNF env a
   case a' of
@@ -382,13 +390,17 @@ infer :: Env -> Expr -> CheckM (Expr, Expr)
 infer env e@(VarE x) = do
   a <- getFromTEnv env x
   return (a, e)
+infer env (ApplyMultiE (VarE s) as) = do
+  (a, e) <- infer env (foldl (\f' a -> ApplyE f' a) (VarE s) as)
+  let e' = sugarToApplyMulti [] e
+  return (a, e')
 infer env (ApplyE e1 e2) = do
-  (a, s) <- infer env e1
+  (a, e1') <- infer env e1
   a' <- evalWHNF env a
   case a' of
     PiE x b c -> do
-      t <- check env e2 b
-      return (substitute1 x t c, ApplyE s t)
+      e2' <- check env e2 b
+      return (substitute1 x e2' c, ApplyE e1' e2')
     _ -> throwError (ShouldBe "function" e1)
 infer env (Proj1E e) = do
   (a, t) <- infer env e
@@ -431,6 +443,10 @@ infer _ e@(UniverseE n) = do
 infer env e@(TypeE _ _ _) = do
   return (UniverseE 0, e)
 infer _ e = throwError (Default ("infer not implemented:" ++ show e))
+
+sugarToApplyMulti :: [Expr] -> Expr -> Expr
+sugarToApplyMulti as (VarE s) = (ApplyMultiE (VarE s) as)
+sugarToApplyMulti as (ApplyE f a) = sugarToApplyMulti (a : as) f
 
 isSubtype :: Env -> Expr -> Expr -> CheckM ()
 isSubtype env a b = do
@@ -498,7 +514,7 @@ isConvertible' env s t a = do
     then do
       _ <- isEqual env s t
       return ()
-    else throwError (Default "isConvertible' else")
+    else throwError (Default ("isConvertible' else: " ++ show (s, t)))
 
 isEqual :: Env -> Expr -> Expr -> CheckM Expr
 isEqual env (VarE x) (VarE y) =
@@ -507,6 +523,8 @@ isEqual env (VarE x) (VarE y) =
       a <- getFromTEnv env x
       return a
     else throwError (Default ("isEqual var: " ++ show (x, y)))
+isEqual env (ApplyMultiE s1 ts1) (ApplyMultiE s2 ts2) =
+  isEqual env (foldl (\f' a -> ApplyE f' a) s1 ts1) (foldl (\f' a -> ApplyE f' a) s2 ts2)
 isEqual env (ApplyE s1 t1) (ApplyE s2 t2) = do
   a <- isEqual env s1 s2
   a' <- evalWHNF env a
@@ -544,6 +562,7 @@ evalWHNF env (VarE n) = do
   case v of
     Nothing -> return (VarE n)
     Just e  -> return e
+-- TODO: if the head of the body is a case expression, we expand only when the target matches with some clause.
 evalWHNF env (ApplyE e1 e2) = do
   e1' <- evalWHNF env e1
   case e1' of
@@ -559,12 +578,28 @@ evalWHNF env (Proj2E e) = do
   case e' of
     PairE _ e2 -> evalWHNF env e2
     _ -> return e'
-evalWHNF env (CaseE ts mcs) = undefined
+evalWHNF env (CaseE ts mcs) = do
+  me <- evalMCs env ts mcs
+  case me of
+    Nothing -> return (CaseE ts mcs)
+    Just e -> return e
 evalWHNF _ e = return e
+
+evalMCs :: Env -> [(Expr, Expr)] -> [([Pattern], Expr)] -> CheckM (Maybe Expr)
+evalMCs _ ts [] = return Nothing
+evalMCs env ts ((ps, b) : mcs) = do
+  mret <- patternMatch ps (map fst ts)
+  case mret of
+    Nothing -> evalMCs env ts mcs
+    Just ret -> Just <$> evalWHNF env (substitute ret b)
+
+patternMatch :: [Pattern] -> [Expr] -> CheckM (Maybe [(Name, Expr)])
+patternMatch = undefined
 
 isNeutral :: Expr -> Bool
 isNeutral (VarE _) = True
 isNeutral (ApplyE e _) = isNeutral e
+isNeutral (ApplyMultiE e _) = isNeutral e
 isNeutral (Proj1E e) = isNeutral e
 isNeutral (Proj2E e) = isNeutral e
 isNeutral (TypeE _ _ _) = True
@@ -582,6 +617,7 @@ substitute1 x v e@(PiE y e1 e2) | x == y    = e
                                | otherwise = PiE y (substitute1 x v e1) (substitute1 x v e2)
 substitute1 x v e@(LambdaE y e1) | x == y    = e
                                 | otherwise = LambdaE y (substitute1 x v e1)
+substitute1 x v (ApplyMultiE e es) = ApplyMultiE (substitute1 x v e) (map (substitute1 x v) es)
 substitute1 x v (ApplyE e1 e2) = ApplyE (substitute1 x v e1) (substitute1 x v e2)
 substitute1 x v e@(SigmaE y e1 e2) | x == y    = e
                                   | otherwise = SigmaE y (substitute1 x v e1) (substitute1 x v e2)
@@ -650,8 +686,8 @@ unify :: [(Expr, Expr)] -> CheckM [(Name, Expr)]
 unify [] = return []
 unify ((VarE ('$' : _), _) : us) = unify us -- Ignore wildcard
 unify ((_, VarE ('$' : _)) : us) = unify us -- Ignore wildcard
-unify ((VarE s, e) : us) = ((s, e) :) <$> unify us
-unify _ = throwError (Default "not implemented")
+unify ((VarE s, e) : us) = ((s, e) :) <$> unify us -- TODO: cycle check
+unify _ = throwError (Default "not implemented") -- TODO: inductive data
 
 -- flexible :: [Pattern] -> Context -> [Name]
 -- flexible [] [] = []
