@@ -563,6 +563,15 @@ evalWHNF env (VarE n) = do
     Nothing -> return (VarE n)
     Just e  -> return e
 -- TODO: if the head of the body is a case expression, we expand only when the target matches with some clause.
+evalWHNF env (ApplyMultiE e es) = do
+  e' <- evalWHNF env e
+  case e' of
+    LambdaMultiE as b@(CaseE _ _) -> do
+      ret <- evalWHNF env (substitute (zip as es) b)
+      case ret of
+        CaseE _ _ -> return (ApplyMultiE e es)
+        _ -> return ret
+    LambdaMultiE _ _ -> desugarExpr (ApplyMultiE e' es) >>= evalWHNF env
 evalWHNF env (ApplyE e1 e2) = do
   e1' <- evalWHNF env e1
   case e1' of
@@ -594,7 +603,14 @@ evalMCs env ts ((ps, b) : mcs) = do
     Just ret -> Just <$> evalWHNF env (substitute ret b)
 
 patternMatch :: [Pattern] -> [Expr] -> CheckM (Maybe [(Name, Expr)])
-patternMatch = undefined
+patternMatch ps ts = patternMatch' [] ps ts
+
+patternMatch' :: [(Name, Expr)] -> [Pattern] -> [Expr] -> CheckM (Maybe [(Name, Expr)])
+patternMatch' ret [] [] = return (Just ret)
+patternMatch' ret (PatVar x : ps) (t : ts) = patternMatch' (ret ++ [(x, t)]) ps ts
+patternMatch' ret (ValuePat v : ps) (t : ts) = patternMatch' ret ps ts -- TODO: equality check between v and t
+patternMatch' ret (DataPat c qs : ps) (DataE c' us : ts) | c == c' = patternMatch' ret (qs ++ ps) (us ++ ts)
+patternMatch' _ _ _ = return Nothing
 
 isNeutral :: Expr -> Bool
 isNeutral (VarE _) = True
@@ -626,6 +642,7 @@ substitute1 x v (Proj1E e1) = Proj1E (substitute1 x v e1)
 substitute1 x v (Proj2E e1) = Proj2E (substitute1 x v e1)
 substitute1 x v (TypeE n ts is) = TypeE n (map (substitute1 x v) ts) (map (substitute1 x v) is)
 substitute1 x v (DataE n xs) = DataE n (map (substitute1 x v) xs)
+substitute1 x v (CaseE ts mcs) = CaseE (map (\(e, t) -> (substitute1 x v e, substitute1 x v t)) ts) (map (\(ps, b) -> (ps, substitute1 x v b)) mcs) -- TODO: substitute also inside pattern (ps)
 substitute1 _ _ e = e
 
 substituteWithTelescope :: Telescope -> [TVal] -> Telescope -> Telescope
@@ -794,11 +811,11 @@ congDef = DefCaseE "cong" [("A", (UniverseE 0)), ("B", (UniverseE 0)), ("f", Arr
 
 --(define (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
 --  {[<zero> <refl>]
---   [<suc $m> (cong suc (plusZero m))]})
+--   [<suc $m> (cong (lambda [$k] <suc k>) (plus m <zero>) m (plusZero m))]})
 plusZeroDef :: TopExpr
 plusZeroDef = DefCaseE "plusZero" [("n", TypeE "Nat" [] [])] (TypeE "Eq" [TypeE "Nat" [] [], ApplyMultiE (VarE "plus") [(VarE "n"), (DataE "zero" [])]] [VarE "n"])
   [([DataPat "zero" []], DataE "refl" []),
-   ([DataPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [TypeE "Nat" [] [], TypeE "Nat" [] [], VarE "suc", ApplyE (VarE "plusZero") (VarE "m")])]
+   ([DataPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [TypeE "Nat" [] [], TypeE "Nat" [] [], LambdaE "k" (DataE "suc" [VarE "k"]), ApplyMultiE (VarE "plus") [VarE "m", DataE "zero" []], VarE "m", ApplyMultiE (VarE "plusZero") [VarE "m"]])]
 
 -- (define (axiomK (A : (Universe 0)) (a : A) (P : <Eq {A a} {a}> -> (Universe 0)) (p : (P <refl>)) (e : <Eq {A a} {a}>)) : (P e)
 --   {[[_ _ _ _ <refl>] p]})
