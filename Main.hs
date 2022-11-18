@@ -13,76 +13,20 @@ import qualified Control.Egison as Egison
 
 main :: IO ()
 main = do
-  (Right topExprs@[idDef', compDef', natDef', zeroDef', oneDef', eqDef', reflDef', iReflDef', plusDef', congDef', plusZeroDef', axiomKDef', lteDef', antisymDef']) <- runCheckM (mapM desugarTopExpr [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, plusZeroDef, axiomKDef, lteDef, antisymDef])
---  putStrLn (show topExprs)
-  let envV = initTopVEnv topExprs
-  let envT = initTopTEnv topExprs
-  let envD = initTopDEnv topExprs
-  let envC = initTopCEnv topExprs
+  let topExprs = [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, plusZeroDef, axiomKDef, lteDef, antisymDef]
+  Right topExprs' <- runCheckM (mapM desugarTopExpr topExprs)
+  let envV = initTopVEnv topExprs'
+  let envT = initTopTEnv topExprs'
+  let envD = initTopDEnv topExprs'
+  let envC = initTopCEnv topExprs'
   let env = (envV, envT, envD, envC)
-  liftIO $ putStrLn "idDef"
-  ret <- runCheckM (checkTopExpr env idDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "compDef"
-  ret <- runCheckM (checkTopExpr env compDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "zeroDef"
-  ret <- runCheckM (checkTopExpr env zeroDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "oneDef"
-  ret <- runCheckM (checkTopExpr env oneDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "reflDef"
-  ret <- runCheckM (checkTopExpr env reflDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "iReflDef"
-  ret <- runCheckM (checkTopExpr env iReflDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "plusDef"
-  ret <- runCheckM (checkTopExpr env plusDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "congDef"
-  ret <- runCheckM (checkTopExpr env congDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "plusZeroDef"
-  ret <- runCheckM (checkTopExpr env plusZeroDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "axiomKDef"
-  ret <- runCheckM (checkTopExpr env axiomKDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
-  liftIO $ putStrLn "anitisymDef"
-  ret <- runCheckM (checkTopExpr env antisymDef')
-  case ret of
-    Left err -> print err
-    Right expr -> putStrLn (show expr)
---  putStrLn (show natDef)
---  putStrLn (show natDef')
---  putStrLn (show congDef)
---  putStrLn (show congDef')
---  putStrLn (show plusDef)
---  putStrLn (show plusDef')
-  putStrLn (show plusZeroDef')
-  putStrLn "end"
+  mapM_ (\(e, e') -> do
+           putStrLn ("input: " ++ show e)
+           ret <- runCheckM (checkTopExpr env e')
+           case ret of
+             Left err -> print err
+             Right expr -> putStrLn ("output: " ++ show expr))
+    (zip topExprs topExprs')
   
 --- Monad
 
@@ -334,6 +278,7 @@ checkTopExpr :: Env -> TopExpr -> CheckM TopExpr
 checkTopExpr env (DefE n t e) = do
   e' <- check env e t
   return (DefE n t e')
+checkTopExpr env _ = throwError (Default "not the target of type-check")
 
 check :: Env -> Expr -> Expr -> CheckM Expr
 check env (LambdaMultiE xs e) a = check env (foldr (\x e' -> LambdaE x e') e xs) a
