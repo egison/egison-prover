@@ -120,14 +120,14 @@ data Expr
   | TypeE Name [Expr] [Expr]
   | DataE Name [Expr]
   | CaseE [(Expr, TVal)] [([Pattern], Expr)]
- deriving Show
+ deriving (Show, Eq)
 
 data Pattern
   = Wildcard
   | PatVar Name
   | DataPat Name [Pattern]
   | ValuePat Expr
- deriving Show
+ deriving (Show, Eq)
 
 data PatternM = PatternM
 instance Matcher PatternM Pattern
@@ -209,6 +209,12 @@ getFromCEnv (_, _, _, cenv) x = do
   let ams = map (\(s, s') -> (s, VarE s')) (zip (map fst as) ans)
   return (zip tns (map (substitute tms) (map snd ts)), zip ans (map (substitute (tms ++ ams)) (map snd as)), substitute (tms ++ ams) b)
 
+addToVEnv1 :: Env -> Name -> TVal -> Env
+addToVEnv1 (venv, tenv, denv, cenv) x a = (venv ++ [(x, a)], tenv, denv, cenv)
+                             
+addToVEnv :: Env -> Context -> Env
+addToVEnv (venv, tenv, denv, cenv) cs = (venv ++ cs, tenv, denv, cenv)
+                             
 addToTEnv1 :: Env -> Name -> TVal -> Env
 addToTEnv1 (venv, tenv, denv, cenv) x a = (venv, tenv ++ [(x, a)], denv, cenv)
                              
@@ -278,7 +284,7 @@ checkTopExpr :: Env -> TopExpr -> CheckM TopExpr
 checkTopExpr env (DefE n t e) = do
   e' <- check env e t
   return (DefE n t e')
-checkTopExpr env _ = throwError (Default "not the target of type-check")
+checkTopExpr _ e = return e
 
 check :: Env -> Expr -> Expr -> CheckM Expr
 check env (LambdaMultiE xs e) a = check env (foldr (\x e' -> LambdaE x e') e xs) a
@@ -454,7 +460,20 @@ isConvertible' env (DataE n1 xs1) (DataE n2 xs2) (TypeE _ ts _) =
       (tts, xts, _) <- getFromCEnv env n1
       areConvertible env xs1 xs2 (substituteWithTelescope tts ts xts)
     else throwError (NotConvertible (DataE n1 xs1) (DataE n2 xs2))
+isConvertible' env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) UniverseAlphaE = -- Same body with the below
+  if n1 == n2
+    then do
+      (tts, its) <- getFromDEnv env n1
+      areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
+    else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
+isConvertible' env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) (UniverseE _) = -- Same body with the above
+  if n1 == n2
+    then do
+      (tts, its) <- getFromDEnv env n1
+      areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
+    else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
 isConvertible' env s t a = do
+--  liftIO $ putStrLn $ show $ "isConvertible (s,t,a): " ++ show (s,t,a)
   if isNeutral s && isNeutral t
     then do
       _ <- isEqual env s t
@@ -492,13 +511,6 @@ isEqual env (Proj2E s) (Proj2E t) = do
     SigmaE x b c -> do
       return (substitute1 x (Proj1E s) c)
     _ -> throwError (Default "isEqual proj2")
-isEqual env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) =
-  if n1 == n2
-    then do
-      (tts, its) <- getFromDEnv env n1
-      areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
-      return (UniverseE 0)
-    else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
 isEqual _ e1 e2 = throwError (Default ("isEqual not implemented:" ++ show (e1, e2)))
 
 evalWHNF :: Env -> Expr -> CheckM Expr
@@ -507,7 +519,6 @@ evalWHNF env (VarE n) = do
   case v of
     Nothing -> return (VarE n)
     Just e  -> return e
--- TODO: if the head of the body is a case expression, we expand only when the target matches with some clause.
 evalWHNF env (ApplyMultiE e es) = do
   e' <- evalWHNF env e
   case e' of
@@ -539,23 +550,28 @@ evalWHNF env (CaseE ts mcs) = do
     Just e -> return e
 evalWHNF _ e = return e
 
-evalMCs :: Env -> [(Expr, Expr)] -> [([Pattern], Expr)] -> CheckM (Maybe Expr)
+evalMCs :: Env -> [(Expr, TVal)] -> [([Pattern], Expr)] -> CheckM (Maybe Expr)
 evalMCs _ ts [] = return Nothing
 evalMCs env ts ((ps, b) : mcs) = do
-  mret <- patternMatch ps (map fst ts)
+  mret <- patternMatch env ps (map fst ts)
   case mret of
     Nothing -> evalMCs env ts mcs
     Just ret -> Just <$> evalWHNF env (substitute ret b)
 
-patternMatch :: [Pattern] -> [Expr] -> CheckM (Maybe [(Name, Expr)])
-patternMatch ps ts = patternMatch' [] ps ts
+patternMatch :: Env -> [Pattern] -> [Expr] -> CheckM (Maybe [(Name, Expr)])
+patternMatch env ps ts = patternMatch' env []  ps ts
 
-patternMatch' :: [(Name, Expr)] -> [Pattern] -> [Expr] -> CheckM (Maybe [(Name, Expr)])
-patternMatch' ret [] [] = return (Just ret)
-patternMatch' ret (PatVar x : ps) (t : ts) = patternMatch' (ret ++ [(x, t)]) ps ts
-patternMatch' ret (ValuePat v : ps) (t : ts) = patternMatch' ret ps ts -- TODO: equality check between v and t
-patternMatch' ret (DataPat c qs : ps) (DataE c' us : ts) | c == c' = patternMatch' ret (qs ++ ps) (us ++ ts)
-patternMatch' _ _ _ = return Nothing
+patternMatch' :: Env -> [(Name, Expr)] -> [Pattern] -> [Expr] -> CheckM (Maybe [(Name, Expr)])
+patternMatch' _ ret [] [] = return (Just ret)
+patternMatch' env ret (PatVar x : ps) (t : ts) = patternMatch' env (ret ++ [(x, t)]) ps ts
+patternMatch' env ret (ValuePat v : ps) (t : ts) = do
+  v' <- evalWHNF (addToVEnv env ret) v
+  t' <- evalWHNF env t
+  if v' == t'
+    then  patternMatch' env ret ps ts
+    else return Nothing
+patternMatch' env ret (DataPat c qs : ps) (DataE c' us : ts) | c == c' = patternMatch' env ret (qs ++ ps) (us ++ ts)
+patternMatch' _ _ _ _ = return Nothing
 
 isNeutral :: Expr -> Bool
 isNeutral (VarE _) = True
@@ -587,7 +603,7 @@ substitute1 x v (Proj1E e1) = Proj1E (substitute1 x v e1)
 substitute1 x v (Proj2E e1) = Proj2E (substitute1 x v e1)
 substitute1 x v (TypeE n ts is) = TypeE n (map (substitute1 x v) ts) (map (substitute1 x v) is)
 substitute1 x v (DataE n xs) = DataE n (map (substitute1 x v) xs)
-substitute1 x v (CaseE ts mcs) = CaseE (map (\(e, t) -> (substitute1 x v e, substitute1 x v t)) ts) (map (\(ps, b) -> (ps, substitute1 x v b)) mcs) -- TODO: substitute also inside pattern (ps)
+substitute1 x v (CaseE ts mcs) = CaseE (map (\(e, t) -> (substitute1 x v e, substitute1 x v t)) ts) (map (\(ps, b) -> (map (substitutePat1 x v) ps, substitute1 x v b)) mcs)
 substitute1 _ _ e = e
 
 substituteWithTelescope :: Telescope -> [TVal] -> Telescope -> Telescope
@@ -597,15 +613,14 @@ substituteWithTelescope ((n, _):ts) (x:xs) rs =
       rs' = map (\(n2, t) -> (n2, substitute1 n x t)) rs in
     substituteWithTelescope ts' xs rs'
 
-substitutePat :: [(Name, Pattern)] -> Pattern -> Pattern
+substitutePat :: [(Name, Expr)] -> Pattern -> Pattern
 substitutePat [] p = p
-substitutePat ((x, q) : ms) p = substitutePat ms (substitutePat1 (x, q) p)
+substitutePat ((x, v) : ms) p = substitutePat ms (substitutePat1 x v p)
 
-substitutePat1 :: (Name, Pattern) -> Pattern -> Pattern
-substitutePat1 (x, q) p@(PatVar y) | x == y = q
-                                   | otherwise = p
-substitutePat1 (x, q) (DataPat c ps) = DataPat c (map (substitutePat1 (x, q)) ps)
-substitutePat1 _ p = p
+substitutePat1 :: Name -> Expr -> Pattern -> Pattern
+substitutePat1 x v p@(PatVar y) = p
+substitutePat1 x v (DataPat c ps) = DataPat c (map (substitutePat1 x v) ps)
+substitutePat1 x v (ValuePat e) = ValuePat (substitute1 x v e)
 
 --- Type-checking for inductive patterns
 
@@ -649,7 +664,11 @@ unify [] = return []
 unify ((VarE ('$' : _), _) : us) = unify us -- Ignore wildcard
 unify ((_, VarE ('$' : _)) : us) = unify us -- Ignore wildcard
 unify ((VarE s, e) : us) = ((s, e) :) <$> unify us -- TODO: cycle check
-unify _ = throwError (Default "not implemented") -- TODO: inductive data
+unify ((DataE c1 as1, DataE c2 as2) : us) =
+  if c1 == c2
+    then unify (zip as1 as2 ++ us)
+    else throwError (Default "cannot unified")
+unify _ = throwError (Default "should not reach here")
 
 -- flexible :: [Pattern] -> Context -> [Name]
 -- flexible [] [] = []
