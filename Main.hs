@@ -68,10 +68,14 @@ instance Monad m => MonadRuntime (RuntimeT m) where
     st <- get
     modify (\st -> st { indexCounter = indexCounter st + 1 })
     return $ "$_" ++ show (indexCounter st)
-  addFresh name = do
+  addFresh name@('$' : _) = do
     st <- get
     modify (\st -> st { indexCounter = indexCounter st + 1 })
     return $ name ++ "_" ++ show (indexCounter st)
+  addFresh name = do
+    st <- get
+    modify (\st -> st { indexCounter = indexCounter st + 1 })
+    return $ "$" ++ name ++ "_" ++ show (indexCounter st)
 
 runRuntimeT :: Monad m => RuntimeT m a -> m (a, RState)
 runRuntimeT = flip runStateT initialRState
@@ -473,7 +477,6 @@ isConvertible' env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) (UniverseE _) = -- Same
       areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
     else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
 isConvertible' env s t a = do
---  liftIO $ putStrLn $ show $ "isConvertible (s,t,a): " ++ show (s,t,a)
   if isNeutral s && isNeutral t
     then do
       _ <- isEqual env s t
@@ -626,49 +629,45 @@ substitutePat1 x v (ValuePat e) = ValuePat (substitute1 x v e)
 
 checkPattern :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM ([Pattern], [(Name, TVal)], [(Name, Expr)])
 checkPattern env cs ps = do
-  (ps, tRet, us) <- checkPattern' env cs ps [] [] []
+  (ps', tRet, us, vs) <- checkPattern' env cs ps [] [] [] []
   vRet <- unify us
-  return (ps, map (\(s, t) -> (s, substitute vRet t)) tRet, vRet)
+  return (ps', map (\(s, t) -> (s, substitute vRet t)) tRet, vRet)
 
-checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)])
-checkPattern' _ [] [] pat ret us = return (pat, ret, us)
-checkPattern' env (_ : cs) (Wildcard : ps) pat ret us = throwError (Default "cannot reach here")
-checkPattern' env ((e, a) : cs) (PatVar x : ps) pat ret us =
-  checkPattern' env cs ps (pat ++ [PatVar x]) (ret ++ [(x, a)]) (us ++ [(e, VarE x)])
-checkPattern' env ((e, a) : cs) (ValuePat v : ps) pat ret us = do
+checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)], [(Expr, Expr)])
+checkPattern' _ [] [] pat ret us vs = return (pat, ret, us, vs)
+checkPattern' env (_ : cs) (Wildcard : ps) pat ret us vs = throwError (Default "cannot reach here1")
+checkPattern' env ((e, a) : cs) (PatVar x : ps) pat ret us vs =
+  checkPattern' env cs ps (pat ++ [PatVar x]) (ret ++ [(x, a)]) (us ++ [(e, VarE x)]) vs
+checkPattern' env ((e, a) : cs) (ValuePat v : ps) pat ret us vs = do
   v' <- check (addToTEnv env ret) v a
-  checkPattern' env cs ps (pat ++ [ValuePat v']) ret (us ++ [(e, v')])
-checkPattern' env ((e, a) : cs) (DataPat c qs : ps) pat ret us = do
+  checkPattern' env cs ps (pat ++ [ValuePat v']) ret us (vs ++ [(e, v')])
+checkPattern' env ((e, a) : cs) (DataPat c qs : ps) pat ret us vs = do
   a' <- evalWHNF env a
   case a' of
     TypeE _ ats ais -> do
       (tts, xts, b) <- getFromCEnv env c
       (env', ats') <- checkTelescope env ats tts
       let xts' = map (\(s, e) -> (VarE s, e)) xts
-      (qs', ret', us') <- checkPattern' env xts' qs [] ret us
-      let b' = (substitute ((zip (map fst tts) ats') ++ (zip (map fst xts) (map pToV qs'))) b)
+      (qs', ret', us', vs') <- checkPattern' env xts' qs [] ret us vs
+      let b' = (substitute ((zip (map fst tts) ats') ++ (zip (map fst xts) (map fst xts'))) b)
       case b' of
         TypeE _ bts bis -> do
           (env', bts') <- checkTelescope env bts tts
-          checkPattern' env cs ps (pat ++ [DataPat c qs']) ret' (us' ++ [(e, pToV (DataPat c qs'))] ++ zip ats' bts' ++ zip ais bis)
+          checkPattern' env cs ps (pat ++ [DataPat c qs']) ret' (us' ++ [(e, DataE c (map fst xts'))] ++ zip ais bis) vs'
         _ -> throwError (Default "")
     _ -> throwError (Default "")
 
-pToV :: Pattern -> Expr
-pToV (PatVar s) = VarE s
-pToV (ValuePat v) = v
-pToV (DataPat c ps) = DataE c (map pToV ps)
-
 unify :: [(Expr, Expr)] -> CheckM [(Name, Expr)]
 unify [] = return []
-unify ((VarE ('$' : _), _) : us) = unify us -- Ignore wildcard
-unify ((_, VarE ('$' : _)) : us) = unify us -- Ignore wildcard
-unify ((VarE s, e) : us) = ((s, e) :) <$> unify us -- TODO: cycle check
+unify ((VarE s@('$' : _), e) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- replace wildcard
+unify ((e, VarE s@('$' : _)) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- replace wildcard
+unify ((VarE s, e) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- TODO: cycle check
+unify ((e, VarE s) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- TODO: cycle check
 unify ((DataE c1 as1, DataE c2 as2) : us) =
   if c1 == c2
     then unify (zip as1 as2 ++ us)
     else throwError (Default "cannot unified")
-unify _ = throwError (Default "should not reach here")
+unify us = throwError (Default ("unify should not reach here:" ++ show us))
 
 -- flexible :: [Pattern] -> Context -> [Name]
 -- flexible [] [] = []
@@ -795,7 +794,7 @@ lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
   [("lz", [("n", TypeE "Nat" [] [])], TypeE "Lte" [] [DataE "zero" [], VarE "n"]),
    ("ls", [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"])], (TypeE "Lte" [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))]
 
---(define (antisym (m : Nat) (n Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
+--(define (antisym (m : Nat) (n : Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
 --  {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]
 --   [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong Nat Nat (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})
 antisymDef :: TopExpr
