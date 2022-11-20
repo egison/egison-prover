@@ -631,6 +631,11 @@ checkPattern :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM ([Pattern], [(Name,
 checkPattern env cs ps = do
   (ps', tRet, us, vs) <- checkPattern' env cs ps [] [] [] []
   vRet <- unify us
+  mapM_ (\(x, y) ->
+           if x == y
+             then return ()
+             else throwError (Default "value pattern cannot unified"))
+    (map (\(x, y) -> (substitute vRet x, substitute vRet y)) vs)
   return (ps', map (\(s, t) -> (s, substitute vRet t)) tRet, vRet)
 
 checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)], [(Expr, Expr)])
