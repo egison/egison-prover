@@ -136,11 +136,11 @@ data Pattern
 data PatternM = PatternM
 instance Matcher PatternM Pattern
 
-dataPat :: Egison.Pattern (PP Name, PP [Pattern]) PatternM Pattern (Name, [Pattern])
-dataPat _ _ (DataPat n ps) = pure (n, ps)
+--dataPat :: Egison.Pattern (PP Name, PP [Pattern]) PatternM Pattern (Name, [Pattern])
+--dataPat _ _ (DataPat n ps) = pure (n, ps)
 
-dataPatM :: m -> t -> (Something, List PatternM)
-dataPatM _ _ = (Something, (List PatternM))
+--dataPatM :: m -> t -> (Something, List PatternM)
+--dataPatM _ _ = (Something, (List PatternM))
 
 type TVal = Expr
 type Val = Expr
@@ -235,7 +235,7 @@ desugarTopExpr (DataDecE n as is cs) = do
                   s' <- replaceWc s
                   ts' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) ts
                   e' <- desugarExpr e
-                  return (s, ts', e')) cs
+                  return (s', ts', e')) cs
   return (DataDecE n as' is' cs')
 desugarTopExpr (DefE n t (LambdaMultiE as e)) = do
   t' <- desugarExpr t
@@ -340,6 +340,7 @@ checkTelescope env (x : xs) ((n, xt) : xts) = do
   x' <- check env x xt
   (env', xs') <- checkTelescope (addToTEnv1 env n xt) xs (map (\(n2, xt2) -> (n2, substitute1 n x' xt2)) xts)
   return (env', x' : xs')
+checkTelescope _ _ _ = throwError (Default "checkTelescope: should not reach here")
 
 infer :: Env -> Expr -> CheckM (Expr, Expr)
 infer env e@(VarE x) = do
@@ -347,7 +348,7 @@ infer env e@(VarE x) = do
   return (a, e)
 infer env (ApplyMultiE (VarE s) as) = do
   (a, e) <- infer env (foldl (\f' a -> ApplyE f' a) (VarE s) as)
-  let e' = sugarToApplyMulti [] e
+  e' <- sugarToApplyMulti [] e
   return (a, e')
 infer env (ApplyE e1 e2) = do
   (a, e1') <- infer env e1
@@ -395,13 +396,14 @@ infer _ e@UnitTypeE = do
   return (UniverseE 0, e)
 infer _ e@(UniverseE n) = do
   return (UniverseE (n + 1), e)
-infer env e@(TypeE _ _ _) = do
+infer _ e@(TypeE _ _ _) = do
   return (UniverseE 0, e)
 infer _ e = throwError (Default ("infer not implemented:" ++ show e))
 
-sugarToApplyMulti :: [Expr] -> Expr -> Expr
-sugarToApplyMulti as (VarE s) = (ApplyMultiE (VarE s) as)
+sugarToApplyMulti :: [Expr] -> Expr -> CheckM Expr
+sugarToApplyMulti as (VarE s) = return (ApplyMultiE (VarE s) as)
 sugarToApplyMulti as (ApplyE f a) = sugarToApplyMulti (a : as) f
+sugarToApplyMulti _ _ = throwError (Default "sugarToApplyMulti: should not reach here")
 
 isSubtype :: Env -> Expr -> Expr -> CheckM ()
 isSubtype env a b = do
@@ -430,6 +432,7 @@ areConvertible _ [] [] [] = return ()
 areConvertible env (x:xs) (y:ys) ((n, xt):xts) = do
   isConvertible env x y xt
   areConvertible (addToTEnv1 env n x) xs ys (map (\(n2, a2) -> (n2, substitute1 n x a2)) xts)
+areConvertible _ _ _ _ = throwError (Default "areConvertible: should not reach here")
 
 isConvertible :: Env -> Expr -> Expr -> Expr -> CheckM ()
 isConvertible env s t a = do
@@ -439,7 +442,7 @@ isConvertible env s t a = do
   isConvertible' env s' t' a'
 
 isConvertible' :: Env -> Expr -> Expr -> Expr -> CheckM ()
-isConvertible' env (UniverseE i) (UniverseE j) UniverseAlphaE =
+isConvertible' _ (UniverseE i) (UniverseE j) UniverseAlphaE =
   if i == j then return () else throwError (NotConvertible (UniverseE i) (UniverseE j))
 isConvertible' env (PiE x a1 b1) (PiE y a2 b2) UniverseAlphaE =
   if x == y
@@ -453,7 +456,7 @@ isConvertible' env (SigmaE x a1 b1) (SigmaE y a2 b2) UniverseAlphaE =
       isConvertible env a1 a2 UniverseAlphaE
       isConvertible (addToTEnv1 env x a1) b1 b2 UniverseAlphaE
     else throwError (NotConvertible (SigmaE x a1 b1) (SigmaE y a2 b2))
-isConvertible' env s t UnitTypeE = return ()
+isConvertible' _ _ _ UnitTypeE = return ()
 isConvertible' env s t (PiE x a b) = isConvertible (addToTEnv1 env x a) (ApplyE s (VarE x)) (ApplyE t (VarE x)) b
 isConvertible' env s t (SigmaE x a b) = do
   isConvertible env (Proj1E s) (Proj1E t) a
@@ -476,7 +479,7 @@ isConvertible' env (TypeE n1 ts1 is1) (TypeE n2 ts2 is2) (UniverseE _) = -- Same
       (tts, its) <- getFromDEnv env n1
       areConvertible env (ts1 ++ is1) (ts2 ++ is2) (tts ++ its)
     else throwError (NotConvertible (TypeE n1 ts1 is1) (TypeE n2 ts2 is2))
-isConvertible' env s t a = do
+isConvertible' env s t _ = do
   if isNeutral s && isNeutral t
     then do
       _ <- isEqual env s t
@@ -504,14 +507,14 @@ isEqual env (Proj1E s) (Proj1E t) = do
   a <- isEqual env s t
   a' <- evalWHNF env a
   case a' of
-    SigmaE x b c -> do
+    SigmaE _ b _ -> do
       return b
     _ -> throwError (Default "isEqual proj1")
 isEqual env (Proj2E s) (Proj2E t) = do
   a <- isEqual env s t
   a' <- evalWHNF env a
   case a' of
-    SigmaE x b c -> do
+    SigmaE x _ c -> do
       return (substitute1 x (Proj1E s) c)
     _ -> throwError (Default "isEqual proj2")
 isEqual _ e1 e2 = throwError (Default ("isEqual not implemented:" ++ show (e1, e2)))
@@ -531,6 +534,7 @@ evalWHNF env (ApplyMultiE e es) = do
         CaseE _ _ -> return (ApplyMultiE e es)
         _ -> return ret
     LambdaMultiE _ _ -> desugarExpr (ApplyMultiE e' es) >>= evalWHNF env
+    _ -> throwError (Default "evalWHNF: not function")
 evalWHNF env (ApplyE e1 e2) = do
   e1' <- evalWHNF env e1
   case e1' of
@@ -554,7 +558,7 @@ evalWHNF env (CaseE ts mcs) = do
 evalWHNF _ e = return e
 
 evalMCs :: Env -> [(Expr, TVal)] -> [([Pattern], Expr)] -> CheckM (Maybe Expr)
-evalMCs _ ts [] = return Nothing
+evalMCs _ _ [] = return Nothing
 evalMCs env ts ((ps, b) : mcs) = do
   mret <- patternMatch env ps (map fst ts)
   case mret of
@@ -615,15 +619,16 @@ substituteWithTelescope ((n, _):ts) (x:xs) rs =
   let ts' = map (\(n2, t) -> (n2, substitute1 n x t)) ts
       rs' = map (\(n2, t) -> (n2, substitute1 n x t)) rs in
     substituteWithTelescope ts' xs rs'
+substituteWithTelescope _ _ _ = throw (Default "substituteWithTelescope: should not reach here")
 
 substitutePat :: [(Name, Expr)] -> Pattern -> Pattern
 substitutePat [] p = p
 substitutePat ((x, v) : ms) p = substitutePat ms (substitutePat1 x v p)
 
 substitutePat1 :: Name -> Expr -> Pattern -> Pattern
-substitutePat1 x v p@(PatVar y) = p
 substitutePat1 x v (DataPat c ps) = DataPat c (map (substitutePat1 x v) ps)
 substitutePat1 x v (ValuePat e) = ValuePat (substitute1 x v e)
+substitutePat1 _ _ p = p
 
 --- Type-checking for inductive patterns
 
@@ -640,7 +645,7 @@ checkPattern env cs ps = do
 
 checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)], [(Expr, Expr)])
 checkPattern' _ [] [] pat ret us vs = return (pat, ret, us, vs)
-checkPattern' env (_ : cs) (Wildcard : ps) pat ret us vs = throwError (Default "cannot reach here1")
+checkPattern' _ (_ : _) (Wildcard : _) _ _ _ _ = throwError (Default "should not reach here1")
 checkPattern' env ((e, a) : cs) (PatVar x : ps) pat ret us vs =
   checkPattern' env cs ps (pat ++ [PatVar x]) (ret ++ [(x, a)]) (us ++ [(e, VarE x)]) vs
 checkPattern' env ((e, a) : cs) (ValuePat v : ps) pat ret us vs = do
@@ -653,17 +658,19 @@ checkPattern' env ((e, a) : cs) (DataPat c qs : ps) pat ret us vs = do
       (tts, xts, b) <- getFromCEnv env c
       (env', ats') <- checkTelescope env ats tts
       let xts' = map (\(s, e) -> (VarE s, e)) xts
-      (qs', ret', us', vs') <- checkPattern' env xts' qs [] ret us vs
+      (qs', ret', us', vs') <- checkPattern' env' xts' qs [] ret us vs
       let b' = (substitute ((zip (map fst tts) ats') ++ (zip (map fst xts) (map fst xts'))) b)
       case b' of
         TypeE _ bts bis -> do
-          (env', bts') <- checkTelescope env bts tts
+          _ <- checkTelescope env bts tts
           checkPattern' env cs ps (pat ++ [DataPat c qs']) ret' (us' ++ [(e, DataE c (map fst xts'))] ++ zip ais bis) vs'
         _ -> throwError (Default "")
     _ -> throwError (Default "")
+checkPattern' _ _ _ _ _ _ _ = throwError (Default "checkPattern': should not reach here")
 
 unify :: [(Expr, Expr)] -> CheckM [(Name, Expr)]
 unify [] = return []
+unify ((x@(VarE _), y) : _) | x == y = throwError (Default ("unify deletion rule: " ++ show (x, y)))
 unify ((VarE s@('$' : _), e) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- replace wildcard
 unify ((e, VarE s@('$' : _)) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- replace wildcard
 unify ((VarE s, e) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- TODO: cycle check
