@@ -27,4 +27,7 @@ Executable egison-prover
     , transformers
     , mtl
     , sweet-egison
+    , parsec               >= 3.0
+    , megaparsec           >= 7.0.0   && < 12.0
+    , parser-combinators   >= 1.0     && < 2.0
   ghc-options:  -O3 -threaded -eventlog -rtsopts -Wall -Wno-name-shadowing

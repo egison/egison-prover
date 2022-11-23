@@ -5,7 +5,12 @@
 
 module Main where
 
-import Control.Exception.Safe
+import           Text.Parsec
+import           Text.Parsec.String
+import qualified Text.Parsec.Token      as P
+import           Control.Monad.Identity (Identity)
+
+import Control.Exception.Safe hiding (try)
 import Control.Monad.Except
 import Control.Monad.Trans.State.Strict
 import Control.Egison hiding (Pattern)
@@ -27,6 +32,16 @@ main = do
              Left err -> print err
              Right expr -> putStrLn ("output: " ++ show expr))
     (zip topExprs topExprs')
+  liftIO $ putStrLn $ "parser test:"
+  let ret1 = parseTopExpr "(define (z:Nat) <zero>)"
+  let ret2 = parseTopExpr "(define (z : Nat) <zero>)"
+  let ret3 = parseTopExpr "(define (one : Nat) <suc <zero>>)"
+  let ret4 = parseTopExpr "(data Nat {} {} {[zero : Nat] [suc (n : Nat) : Nat]})"
+  let ret5 = parseTopExpr "(data Nat {} {} {[zero : Nat] [suc (_ : Nat) : Nat]})"
+  liftIO $ putStrLn $ show ret1
+  liftIO $ putStrLn $ show ret2
+  liftIO $ putStrLn $ show ret3
+  liftIO $ putStrLn $ show ret4
   
 --- Monad
 
@@ -36,6 +51,7 @@ data PwlError
   | UnboundVariable Name
   | ShouldBe String Expr
   | NotConvertible Expr Expr
+  | Parser String
 
 instance Show PwlError where
   show (Default msg) = "Type error: " ++ msg
@@ -96,6 +112,7 @@ instance MonadRuntime CheckM where
   
 --- Datatypes
 
+type MName = Maybe String
 type Name = String
 
 data TopExpr
@@ -107,7 +124,6 @@ data TopExpr
 
 data Expr
   = VarE Name
-  | ArrowE Expr Expr -- SHOULD DESUGARED
   | PiE Name Expr Expr
   | LambdaE Name Expr
   | LambdaMultiE [Name] Expr -- SHOULD DESUGARED
@@ -124,19 +140,207 @@ data Expr
   | TypeE Name [Expr] [Expr]
   | DataE Name [Expr]
   | CaseE [(Expr, TVal)] [([Pattern], Expr)]
+  | UndefinedE
  deriving (Show, Eq)
 
 data Pattern
-  = Wildcard
-  | PatVar Name
+  = PatVar Name
   | DataPat Name [Pattern]
   | ValuePat Expr
+ deriving (Show, Eq)
+
+---
+--- Pretty AST
+---
+
+data PTopExpr
+  = PDataDecE Name [(MName, PExpr)] [(MName, PExpr)] [(Name, [(MName, PExpr)], PExpr)] -- datatype name, telescope, indices, [(constructor name, args, type)]
+  | PDefE Name PExpr PExpr -- name, type, expr
+  | PDefFunE Name [(MName, PExpr)] PExpr PExpr -- SHOULD DESUGARED: name, types of arguments, type of return value, expr
+  | PDefCaseE Name [(MName, PExpr)] PExpr [([PPattern], PExpr)] -- SHOULD DESUGARED: name, types of arguments, type of return value, [(patterns, body)]
+ deriving Show
+
+data PExpr
+  = PVarE Name
+  | PArrowE PExpr PExpr -- SHOULD DESUGARED
+  | PPiE MName PExpr PExpr
+  | PLambdaE MName PExpr
+  | PLambdaMultiE [MName] PExpr -- SHOULD DESUGARED
+  | PApplyE PExpr PExpr
+  | PApplyMultiE PExpr [PExpr] -- SHOULD DESUGARED
+  | PSigmaE Name PExpr PExpr
+  | PPairE PExpr PExpr
+  | PProj1E PExpr
+  | PProj2E PExpr
+  | PUniverseE Integer
+  | PUniverseAlphaE -- Only internal use: Universe for some integer alpha
+  | PUnitTypeE
+  | PUnitE
+  | PTypeE Name [PExpr] [PExpr]
+  | PDataE Name [PExpr]
+  | PCaseE [(PExpr, PExpr)] [([PPattern], PExpr)]
+  | PUndefinedE
+ deriving (Show, Eq)
+
+data PPattern
+  = PWildcard
+  | PPatVar Name
+  | PDataPat Name [PPattern]
+  | PValuePat PExpr
  deriving (Show, Eq)
 
 ---
 --- Parser
 ---
 
+readTopExpr :: String -> CheckM PTopExpr
+readTopExpr input = do
+  either (throwError . Parser) return (parseTopExpr input)
+
+
+parseTopExpr :: String -> Either String PTopExpr
+parseTopExpr = doParse $ do
+  ret <- whiteSpace >> topExpr
+  whiteSpace >> eof
+  return ret
+
+parseExpr :: String -> Either String PExpr
+parseExpr = doParse $ do
+  ret <- whiteSpace >> expr
+  whiteSpace >> eof
+  return ret
+
+doParse :: Parser a -> String -> Either String a
+doParse p input = either (throwError . show) return $ parse p "egison-prover" input
+
+
+whiteSpace :: Parser ()
+whiteSpace = P.whiteSpace lexer
+
+parens :: Parser a -> Parser a
+parens = P.parens lexer
+
+brackets :: Parser a -> Parser a
+brackets = P.brackets lexer
+
+braces :: Parser a -> Parser a
+braces = P.braces lexer
+
+angles :: Parser a -> Parser a
+angles = P.angles lexer
+
+ident :: Parser String
+ident = P.identifier lexer
+
+topExpr :: Parser PTopExpr
+topExpr = try defExpr
+--      <|> defFunExpr
+--      <|> defCaseExpr
+      <|> try dataDecExpr
+      <?> "top-level expression"
+
+dataDecExpr :: Parser PTopExpr
+dataDecExpr = parens (do
+  keywordData
+  s <- ident
+  whiteSpace
+  ts <- braces (sepEndBy mNameWithType whiteSpace)
+  is <- braces (sepEndBy mNameWithType whiteSpace)
+  cs <- braces (sepEndBy consDec whiteSpace)
+  return (PDataDecE s ts is cs))
+
+consDec :: Parser (Name, [(MName, PExpr)], PExpr)
+consDec = brackets (do
+  c <- ident
+  whiteSpace
+  as <- sepEndBy mNameWithType whiteSpace
+  char ':' >> whiteSpace
+  t <- expr
+  return (c, as, t))
+
+defExpr :: Parser PTopExpr
+defExpr = parens (do
+  keywordDefine
+  (s, t) <- nameWithType
+  whiteSpace
+  b <- expr
+  return (PDefE s t b))
+
+expr :: Parser PExpr
+expr = try varExpr
+   <|> try dataExpr
+
+varExpr :: Parser PExpr
+varExpr = do
+  s <- ident
+  return (PVarE s)
+
+dataExpr :: Parser PExpr
+dataExpr = angles (do
+  s <- ident
+  whiteSpace
+  args <- sepEndBy expr whiteSpace
+  return (PDataE s args))
+
+nameWithType :: Parser (Name, PExpr)
+nameWithType = parens (do
+  s <- ident
+  whiteSpace >> char ':' >> whiteSpace
+  t <- expr
+  return (s, t))
+
+mNameWithType :: Parser (MName, PExpr)
+mNameWithType = parens (do
+  s <- ident
+  whiteSpace >> char ':' >> whiteSpace
+  t <- expr
+  return (Just s, t))
+
+egisonDef :: P.GenLanguageDef String () Identity
+egisonDef =
+  P.LanguageDef { P.commentStart       = "#|"
+                , P.commentEnd         = "|#"
+                , P.commentLine        = ";"
+                , P.identStart         = letter <|> symbol1 <|> symbol0
+                , P.identLetter        = letter <|> digit <|> symbol2
+                , P.opStart            = symbol1
+                , P.opLetter           = symbol1
+                , P.reservedNames      = reservedKeywords
+                , P.reservedOpNames    = reservedOperators
+                , P.nestedComments     = True
+                , P.caseSensitive      = True }
+
+symbol0 = char '^'
+-- Don't allow three consecutive dots to be a part of identifier
+symbol1 = oneOf "+-*/=∂∇" <|> try (char '.' <* notFollowedBy (string ".."))
+symbol2 = symbol1 <|> oneOf "'!?₀₁₂₃₄₅₆₇₈₉"
+
+lexer :: P.GenTokenParser String () Identity
+lexer = P.makeTokenParser egisonDef
+
+reservedKeywords :: [String]
+reservedKeywords =
+  [ "data"
+  , "define"
+  , "case"
+  , "lambda"
+  , "undefined"]
+
+reservedOperators :: [String]
+reservedOperators =
+  [ ":"
+  , "$"
+  , "_"
+  , "..."]
+
+reserved :: String -> Parser ()
+reserved = P.reserved lexer
+
+reservedOp :: String -> Parser ()
+reservedOp = P.reservedOp lexer
+
+keywordData                 = reserved "data"
+keywordDefine               = reserved "define"
 
 ---
 --- Environment
@@ -236,60 +440,66 @@ addToTEnv (venv, tenv, denv, cenv) cs = (venv, tenv ++ cs, denv, cenv)
                              
 --- Desugar
 
-desugarTopExpr :: TopExpr -> CheckM TopExpr
-desugarTopExpr (DataDecE n as is cs) = do
+desugarTopExpr :: PTopExpr -> CheckM TopExpr
+desugarTopExpr (PDataDecE n as is cs) = do
   as' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) as
   is' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) is
   cs' <- mapM (\(s, ts, e) -> do
-                  s' <- replaceWc s
                   ts' <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) ts
                   e' <- desugarExpr e
-                  return (s', ts', e')) cs
+                  return (s, ts', e')) cs
   return (DataDecE n as' is' cs')
-desugarTopExpr (DefE n t (LambdaMultiE as e)) = do
+desugarTopExpr (PDefE n t (PLambdaMultiE as e)) = do
   t' <- desugarExpr t
+  as' <- mapM replaceWc as
   e' <- desugarExpr e
-  return (DefE n t' (LambdaMultiE as e'))
-desugarTopExpr (DefE n t e) = do
+  return (DefE n t' (LambdaMultiE as' e'))
+desugarTopExpr (PDefE n t e) = do
   t' <- desugarExpr t
   e' <- desugarExpr e
   return (DefE n t' e')
-desugarTopExpr (DefFunE n as t e) = do
-  let t' = foldr (\(s, u) t' -> PiE s u t') t as
-  let e' = LambdaMultiE (map fst as) e
-  desugarTopExpr (DefE n t' e')
-desugarTopExpr (DefCaseE n as t cs) = do
-  as'  <- mapM (\(s, e) -> (,) <$> replaceWc s <*> desugarExpr e) as
-  desugarTopExpr (DefFunE n as' t (CaseE (map (\(s, e) -> (VarE s, e)) as') cs))
+desugarTopExpr (PDefFunE n as t e) = do
+  let t' = foldr (\(s, u) t' -> PPiE s u t') t as
+  let e' = PLambdaMultiE (map fst as) e
+  desugarTopExpr (PDefE n t' e')
+desugarTopExpr (PDefCaseE n as t cs) = do
+  as'   <- mapM (\(s, e) -> (, e) <$> replaceWc s) as
+  let as'' = map (\(s, e) -> (Just s, e)) as'
+  desugarTopExpr (PDefFunE n as'' t (PCaseE (map (\(s, e) -> (PVarE s, e)) as') cs))
   
-desugarExpr :: Expr -> CheckM Expr
-desugarExpr (ArrowE t1 t2) = do
+desugarExpr :: PExpr -> CheckM Expr
+desugarExpr (PVarE s) = return (VarE s)
+desugarExpr (PArrowE t1 t2) = do
   s <- fresh
-  desugarExpr (PiE s t1 t2)
-desugarExpr (PiE s t1 t2) = PiE <$> replaceWc s <*> desugarExpr t1 <*> desugarExpr t2
-desugarExpr (LambdaMultiE ns e) = desugarExpr (foldr (\n e' -> LambdaE n e') e ns)
-desugarExpr (ApplyMultiE (VarE s) as) = ApplyMultiE (VarE s) <$> mapM desugarExpr as
-desugarExpr (ApplyMultiE f as) = desugarExpr (foldl (\f' a -> ApplyE f' a) f as)
-desugarExpr (LambdaE n e1) = LambdaE n <$> (desugarExpr e1)
-desugarExpr (ApplyE e1 e2) = ApplyE <$> (desugarExpr e1) <*> (desugarExpr e2)
-desugarExpr (SigmaE n e1 e2) = SigmaE n <$> (desugarExpr e1) <*> (desugarExpr e2)
-desugarExpr (PairE e1 e2) = PairE <$> (desugarExpr e1) <*> (desugarExpr e2)
-desugarExpr (Proj1E e1) = Proj1E <$> (desugarExpr e1)
-desugarExpr (Proj2E e1) = Proj2E <$> (desugarExpr e1)
-desugarExpr (CaseE ts cs) = CaseE <$> (mapM (\(s, e) -> (,) <$> desugarExpr s <*> desugarExpr e) ts) <*> (mapM (\(ps, e) -> (,) <$> (mapM desugarPattern ps) <*> (desugarExpr e)) cs)
-desugarExpr (TypeE c ts is) = TypeE c <$> mapM desugarExpr ts <*> mapM desugarExpr is
-desugarExpr (DataE c es) = DataE c <$> mapM desugarExpr es
-desugarExpr e = return e
+  desugarExpr (PPiE (Just s) t1 t2)
+desugarExpr (PPiE s t1 t2) = PiE <$> replaceWc s <*> desugarExpr t1 <*> desugarExpr t2
+desugarExpr (PLambdaMultiE ns e) = desugarExpr (foldr (\n e' -> PLambdaE n e') e ns)
+desugarExpr (PApplyMultiE (PVarE s) as) = ApplyMultiE <$> desugarExpr (PVarE s) <*> mapM desugarExpr as
+desugarExpr (PApplyMultiE f as) = desugarExpr (foldl (\f' a -> PApplyE f' a) f as)
+desugarExpr (PLambdaE Nothing e1) = LambdaE <$> fresh <*> desugarExpr e1
+desugarExpr (PLambdaE (Just n) e1) = LambdaE n <$> desugarExpr e1
+desugarExpr (PApplyE e1 e2) = ApplyE <$> (desugarExpr e1) <*> (desugarExpr e2)
+desugarExpr (PSigmaE n e1 e2) = SigmaE n <$> (desugarExpr e1) <*> (desugarExpr e2)
+desugarExpr (PPairE e1 e2) = PairE <$> (desugarExpr e1) <*> (desugarExpr e2)
+desugarExpr (PProj1E e1) = Proj1E <$> (desugarExpr e1)
+desugarExpr (PProj2E e1) = Proj2E <$> (desugarExpr e1)
+desugarExpr (PCaseE ts cs) = CaseE <$> (mapM (\(s, e) -> (,) <$> desugarExpr s <*> desugarExpr e) ts) <*> (mapM (\(ps, e) -> (,) <$> (mapM desugarPattern ps) <*> (desugarExpr e)) cs)
+desugarExpr (PTypeE c ts is) = TypeE c <$> mapM desugarExpr ts <*> mapM desugarExpr is
+desugarExpr (PDataE c es) = DataE c <$> mapM desugarExpr es
+desugarExpr (PUniverseE n) = return (UniverseE n)
+desugarExpr PUniverseAlphaE = return UniverseAlphaE
+desugarExpr PUnitTypeE = return UnitTypeE
+desugarExpr PUnitE = return UnitE
 
-desugarPattern :: Pattern -> CheckM Pattern
-desugarPattern Wildcard = PatVar <$> fresh
-desugarPattern (ValuePat e) = ValuePat <$> desugarExpr e
-desugarPattern (DataPat n ps) = DataPat n <$> mapM desugarPattern ps
-desugarPattern p = return p
+desugarPattern :: PPattern -> CheckM Pattern
+desugarPattern PWildcard = PatVar <$> fresh
+desugarPattern (PPatVar s) = return (PatVar s)
+desugarPattern (PValuePat e) = ValuePat <$> desugarExpr e
+desugarPattern (PDataPat n ps) = DataPat n <$> mapM desugarPattern ps
 
-replaceWc :: Name -> CheckM Name
-replaceWc "_" = fresh
-replaceWc s   = return s
+replaceWc :: MName -> CheckM Name
+replaceWc Nothing = fresh
+replaceWc (Just s) = return s
 
 --- Type checking
 
@@ -542,7 +752,7 @@ evalWHNF env (ApplyMultiE e es) = do
       case ret of
         CaseE _ _ -> return (ApplyMultiE e es)
         _ -> return ret
-    LambdaMultiE _ _ -> desugarExpr (ApplyMultiE e' es) >>= evalWHNF env
+    LambdaMultiE _ _ -> evalWHNF env (foldl (\f a -> ApplyE e a) e' es)
     _ -> throwError (Default "evalWHNF: not function")
 evalWHNF env (ApplyE e1 e2) = do
   e1' <- evalWHNF env e1
@@ -654,7 +864,6 @@ checkPattern env cs ps = do
 
 checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)], [(Expr, Expr)])
 checkPattern' _ [] [] pat ret us vs = return (pat, ret, us, vs)
-checkPattern' _ (_ : _) (Wildcard : _) _ _ _ _ = throwError (Default "should not reach here1")
 checkPattern' env ((e, a) : cs) (PatVar x : ps) pat ret us vs =
   checkPattern' env cs ps (pat ++ [PatVar x]) (ret ++ [(x, a)]) (us ++ [(e, VarE x)]) vs
 checkPattern' env ((e, a) : cs) (ValuePat v : ps) pat ret us vs = do
@@ -712,7 +921,7 @@ unify us = throwError (Default ("unify should not reach here:" ++ show us))
 -- isAccecible1 x (ValuePat _) = False
 
 checkCoverage :: Env -> [TVal] -> [[Pattern]] -> CheckM ()
-checkCoverage env ts pss = checkCoverage' env [(map (\_ -> Wildcard) ts)] ts pss
+checkCoverage env ts pss = undefined -- checkCoverage' env [(map (\_ -> Wildcard) ts)] ts pss
 
 checkCoverage' :: Env -> [[Pattern]] -> [TVal] -> [[Pattern]] -> CheckM ()
 checkCoverage' _ [] _ _ = return ()
@@ -734,7 +943,6 @@ matchPattern [] [] = return True
 matchPattern (q : qs) (p : ps) = (&&) <$> matchPattern1 q p <*> matchPattern qs ps
 
 matchPattern1 :: Pattern -> Pattern -> CheckM Bool
-matchPattern1 Wildcard _ = return True
 matchPattern1 (DataPat c1 qs) (DataPat c2 ps) =
   if c1 == c2
     then matchPattern qs ps
@@ -751,21 +959,20 @@ getNeighbors = undefined
 --- Sample programs without pattern matching
 ---
 
---(define (id (A : (Universe 0)) (x : A)) : A
---  x)
-idDef :: TopExpr
-idDef = DefFunE "id"
-  [("A", UniverseE 0), ("x", VarE "A")]
-  (VarE "A")
-  (VarE "x")
+--(define ((id (A : (Universe 0)) (x : A)) : A) x)
+idDef :: PTopExpr
+idDef = PDefFunE "id"
+  [(Just "A", PUniverseE 0), (Just "x", PVarE "A")]
+  (PVarE "A")
+  (PVarE "x")
 
---(define (comp (A : (Universe 0)) (B : (Universe 0)) (C : B -> (Universe 0)) (f : (Π (b : B) (C b))) (g : A -> B) (a : A)) : (C (g a))
+--(define ((comp (A : (Universe 0)) (B : (Universe 0)) (C : B -> (Universe 0)) (f : (Π (b : B) (C b))) (g : A -> B) (a : A)) : (C (g a)))
 --  (f (g a)))
-compDef :: TopExpr
-compDef = DefFunE "comp"
-  [("A", UniverseE 0), ("B", UniverseE 0), ("C", ArrowE (VarE "B") (UniverseE 0)), ("f", PiE "x" (VarE "B") (ApplyE (VarE "C") (VarE "x"))), ("g", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A")]
-  (ApplyE (VarE "C") (ApplyE (VarE "g") (VarE "x")))
-  (ApplyE (VarE "f") (ApplyE (VarE "g") (VarE "x")))
+compDef :: PTopExpr
+compDef = PDefFunE "comp"
+  [(Just "A", PUniverseE 0), (Just "B", PUniverseE 0), (Just "C", PArrowE (PVarE "B") (PUniverseE 0)), (Just "f", PPiE (Just "x") (PVarE "B") (PApplyE (PVarE "C") (PVarE "x"))), (Just "g", PArrowE (PVarE "A") (PVarE "B")), (Just "x", PVarE "A")]
+  (PApplyE (PVarE "C") (PApplyE (PVarE "g") (PVarE "x")))
+  (PApplyE (PVarE "f") (PApplyE (PVarE "g") (PVarE "x")))
 
 ---
 --- Sample programs with inductive data
@@ -774,99 +981,99 @@ compDef = DefFunE "comp"
 --(data Nat {} {}
 --  {[zero : Nat]
 --   [suc (_ : Nat) : Nat]})
-natDef :: TopExpr
-natDef = DataDecE "Nat" [] []
-  [("zero", [], TypeE "Nat" [] []),
-   ("suc", [("_", TypeE "Nat" [] [])], TypeE "Nat" [] [])]
+natDef :: PTopExpr
+natDef = PDataDecE "Nat" [] []
+  [("zero", [], PTypeE "Nat" [] []),
+   ("suc", [(Nothing, PTypeE "Nat" [] [])], PTypeE "Nat" [] [])]
 
--- (define z : Nat <zero>)
-zeroDef :: TopExpr
-zeroDef = DefE "z"
-  (TypeE "Nat" [] [])
-  (DataE "zero" [])
+-- (define (z : Nat) <zero>)
+zeroDef :: PTopExpr
+zeroDef = PDefE "z"
+  (PTypeE "Nat" [] [])
+  (PDataE "zero" [])
 
--- (define one : Nat <suc <zero>>)
-oneDef :: TopExpr
-oneDef = DefE "one"
-  (TypeE "Nat" [] [])
-  (DataE "suc" [DataE "zero" []])
+-- (define (one : Nat) <suc <zero>>)
+oneDef :: PTopExpr
+oneDef = PDefE "one"
+  (PTypeE "Nat" [] [])
+  (PDataE "suc" [PDataE "zero" []])
 
 --(data Eq {(A : (Universe 0)) (x : A)} {A}
 --  {[refl  : (Eq A x x)]})
-eqDef :: TopExpr
-eqDef = DataDecE "Eq" [("A", UniverseE 0), ("x", VarE "A")] [("_", VarE "A")]
-  [("refl", [], TypeE "Eq" [VarE "A", VarE "x"] [VarE "x"])]
+eqDef :: PTopExpr
+eqDef = PDataDecE "Eq" [(Just "A", PUniverseE 0), (Just "x", PVarE "A")] [(Nothing, PVarE "A")]
+  [("refl", [], PTypeE "Eq" [PVarE "A", PVarE "x"] [PVarE "x"])]
 
--- (define r : <Eq {Nat <zero>} {<zero>}>
+-- (define (r : <Eq {Nat <zero>} {<zero>}>)
 --   <refl>)
-reflDef :: TopExpr
-reflDef = DefE "r"
-  (TypeE "Eq" [TypeE "Nat" [] [], DataE "zero" []] [DataE "zero" []])
-  (DataE "refl" [])
+reflDef :: PTopExpr
+reflDef = PDefE "r"
+  (PTypeE "Eq" [PTypeE "Nat" [] [], PDataE "zero" []] [PDataE "zero" []])
+  (PDataE "refl" [])
 
--- (define ir : <Eq {Nat <zero>} {<suc <zero>>}>
+-- (define (ir : <Eq {Nat <zero>} {<suc <zero>>}>)
 --   <refl>)
-iReflDef :: TopExpr
-iReflDef = DefE "ir"
-  (TypeE "Eq" [TypeE "Nat" [] [], DataE "zero" []] [DataE "suc" [DataE "zero" []]])
-  (DataE "refl" [])
+iReflDef :: PTopExpr
+iReflDef = PDefE "ir"
+  (PTypeE "Eq" [PTypeE "Nat" [] [], PDataE "zero" []] [PDataE "suc" [PDataE "zero" []]])
+  (PDataE "refl" [])
 
 ---
 --- Sample programs with pattern matching
 ---
 
---(define (plus (x : Nat) (y : Nat)) : Nat
+--(define ((plus (x : Nat) (y : Nat)) : Nat)
 --  {[[<zero> $n] n]
 --   [[<suc $m> $n] <suc (plus m n)>]})
-plusDef :: TopExpr
-plusDef = DefCaseE "plus" [("x", TypeE "Nat" [] []), ("y", TypeE "Nat" [] [])] (TypeE "Nat" [] [])
-  [([DataPat "zero" [], PatVar "n"], VarE "n"),
-   ([DataPat "suc" [(PatVar "m")], PatVar "n"], DataE "suc" [ApplyMultiE (VarE "plus") [VarE "m", VarE "n"]])]
+plusDef :: PTopExpr
+plusDef = PDefCaseE "plus" [(Just "x", PTypeE "Nat" [] []), (Just "y", PTypeE "Nat" [] [])] (PTypeE "Nat" [] [])
+  [([PDataPat "zero" [], PPatVar "n"], PVarE "n"),
+   ([PDataPat "suc" [(PPatVar "m")], PPatVar "n"], PDataE "suc" [PApplyMultiE (PVarE "plus") [PVarE "m", PVarE "n"]])]
 
---(define (cong (A : (Universe 0)) (B : (Universe 0)) (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y))
+--(define ((cong (A : (Universe 0)) (B : (Universe 0)) (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y)))
 --  {[[_ _ _ _ _ <refl>] <refl>]})
-congDef :: TopExpr
-congDef = DefCaseE "cong" [("A", (UniverseE 0)), ("B", (UniverseE 0)), ("f", ArrowE (VarE "A") (VarE "B")), ("x", VarE "A"), ("y", VarE "A"), ("_", TypeE "Eq" [VarE "A", VarE "x"] [VarE "y"])] (TypeE "Eq" [VarE "B", ApplyE (VarE "f") (VarE "x")] [ApplyE (VarE "f") (VarE "y")])
-  [([Wildcard, Wildcard, Wildcard, Wildcard, Wildcard, DataPat "refl" []], DataE "refl" [])]
+congDef :: PTopExpr
+congDef = PDefCaseE "cong" [(Just "A", (PUniverseE 0)), (Just "B", (PUniverseE 0)), (Just "f", PArrowE (PVarE "A") (PVarE "B")), (Just "x", PVarE "A"), (Just "y", PVarE "A"), (Nothing, PTypeE "Eq" [PVarE "A", PVarE "x"] [PVarE "y"])] (PTypeE "Eq" [PVarE "B", PApplyE (PVarE "f") (PVarE "x")] [PApplyE (PVarE "f") (PVarE "y")])
+  [([PWildcard, PWildcard, PWildcard, PWildcard, PWildcard, PDataPat "refl" []], PDataE "refl" [])]
 
---(define (plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n)
+--(define ((plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n))
 --  {[<zero> <refl>]
 --   [<suc $m> (cong (lambda [$k] <suc k>) (plus m <zero>) m (plusZero m))]})
-plusZeroDef :: TopExpr
-plusZeroDef = DefCaseE "plusZero" [("n", TypeE "Nat" [] [])] (TypeE "Eq" [TypeE "Nat" [] [], ApplyMultiE (VarE "plus") [(VarE "n"), (DataE "zero" [])]] [VarE "n"])
-  [([DataPat "zero" []], DataE "refl" []),
-   ([DataPat "suc" [PatVar "m"]], ApplyMultiE (VarE "cong") [TypeE "Nat" [] [], TypeE "Nat" [] [], LambdaE "k" (DataE "suc" [VarE "k"]), ApplyMultiE (VarE "plus") [VarE "m", DataE "zero" []], VarE "m", ApplyMultiE (VarE "plusZero") [VarE "m"]])]
+plusZeroDef :: PTopExpr
+plusZeroDef = PDefCaseE "plusZero" [(Just "n", PTypeE "Nat" [] [])] (PTypeE "Eq" [PTypeE "Nat" [] [], PApplyMultiE (PVarE "plus") [(PVarE "n"), (PDataE "zero" [])]] [PVarE "n"])
+  [([PDataPat "zero" []], PDataE "refl" []),
+   ([PDataPat "suc" [PPatVar "m"]], PApplyMultiE (PVarE "cong") [PTypeE "Nat" [] [], PTypeE "Nat" [] [], PLambdaE (Just "k") (PDataE "suc" [PVarE "k"]), PApplyMultiE (PVarE "plus") [PVarE "m", PDataE "zero" []], PVarE "m", PApplyMultiE (PVarE "plusZero") [PVarE "m"]])]
 
--- (define (axiomK (A : (Universe 0)) (a : A) (P : <Eq {A a} {a}> -> (Universe 0)) (p : (P <refl>)) (e : <Eq {A a} {a}>)) : (P e)
+-- (define ((axiomK (A : (Universe 0)) (a : A) (P : <Eq {A a} {a}> -> (Universe 0)) (p : (P <refl>)) (e : <Eq {A a} {a}>)) : (P e))
 --   {[[_ _ _ _ <refl>] p]})
-axiomKDef :: TopExpr
-axiomKDef = DefCaseE "axiomK" [("A", (UniverseE 0)), ("a", (VarE "A")), ("P", (ArrowE (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]) (UniverseE 0))), ("p", (ApplyE (VarE "P") (DataE "refl" []))), ("e", (TypeE "Eq" [(VarE "A"), (VarE "a")] [(VarE "a")]))] (ApplyE (VarE "P") (VarE "e"))
-  [([Wildcard, Wildcard, Wildcard, Wildcard, DataPat "refl" []], VarE "p")]
+axiomKDef :: PTopExpr
+axiomKDef = PDefCaseE "axiomK" [(Just "A", (PUniverseE 0)), (Just "a", (PVarE "A")), (Just "P", (PArrowE (PTypeE "Eq" [(PVarE "A"), (PVarE "a")] [(PVarE "a")]) (PUniverseE 0))), (Just "p", (PApplyE (PVarE "P") (PDataE "refl" []))), (Just "e", (PTypeE "Eq" [(PVarE "A"), (PVarE "a")] [(PVarE "a")]))] (PApplyE (PVarE "P") (PVarE "e"))
+  [([PWildcard, PWildcard, PWildcard, PWildcard, PDataPat "refl" []], PVarE "p")]
 
 --(data Lte {} {Nat Nat}
 --  {[lz (n : Nat) : (Lte <zero> n)]
 --   [ls (m : Nat) (n : Nat) (_ : (Lte m n)) : (Lte <suc m> <suc n>)]})
-lteDef :: TopExpr
-lteDef = DataDecE "Lte" [] [("_", TypeE "Nat" [] []), ("_", TypeE "Nat" [] [])]
-  [("lz", [("n", TypeE "Nat" [] [])], TypeE "Lte" [] [DataE "zero" [], VarE "n"]),
-   ("ls", [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"])], (TypeE "Lte" [] [DataE "suc" [VarE "m"], DataE "suc" [VarE "n"]]))]
+lteDef :: PTopExpr
+lteDef = PDataDecE "Lte" [] [(Nothing, PTypeE "Nat" [] []), (Nothing, PTypeE "Nat" [] [])]
+  [("lz", [(Just "n", PTypeE "Nat" [] [])], PTypeE "Lte" [] [PDataE "zero" [], PVarE "n"]),
+   ("ls", [(Just "m", PTypeE "Nat" [] []), (Just "n", PTypeE "Nat" [] []), (Nothing, PTypeE "Lte" [] [PVarE "m", PVarE "n"])], (PTypeE "Lte" [] [PDataE "suc" [PVarE "m"], PDataE "suc" [PVarE "n"]]))]
 
---(define (antisym (m : Nat) (n : Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n)
+--(define ((antisym (m : Nat) (n : Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n))
 --  {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]
 --   [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong Nat Nat (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})
-antisymDef :: TopExpr
-antisymDef = DefCaseE "antisym" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
-  [([DataPat "zero" [], DataPat "zero" [], DataPat "lz" [ValuePat (DataE "zero" [])], DataPat "lz" [ValuePat (DataE "zero" [])]], DataE "refl" []),
-   ([DataPat "suc" [PatVar "m'"], DataPat "suc" [PatVar "n'"], DataPat"ls" [ValuePat (VarE "m'"), ValuePat (VarE "n'"), PatVar "x"], DataPat "ls" [ValuePat (VarE "n'"), ValuePat (VarE "m'"), PatVar "y"]], ApplyMultiE (VarE "cong") [TypeE "Nat" [] [], TypeE "Nat" [] [], LambdaE "k" (DataE "suc" [VarE "k"]), VarE "m'", VarE "n'", ApplyMultiE (VarE "antisym") [VarE "m'", VarE "n'", VarE "x", VarE "y"]])]
+antisymDef :: PTopExpr
+antisymDef = PDefCaseE "antisym" [(Just "m", PTypeE "Nat" [] []), (Just "n", PTypeE "Nat" [] []), (Nothing, PTypeE "Lte" [] [PVarE "m", PVarE "n"]), (Nothing, PTypeE "Lte" [] [PVarE "n", PVarE "m"])] (PTypeE "Eq" [PTypeE "Nat" [] [], PVarE "m"] [PVarE "n"])
+  [([PDataPat "zero" [], PDataPat "zero" [], PDataPat "lz" [PValuePat (PDataE "zero" [])], PDataPat "lz" [PValuePat (PDataE "zero" [])]], PDataE "refl" []),
+   ([PDataPat "suc" [PPatVar "m'"], PDataPat "suc" [PPatVar "n'"], PDataPat"ls" [PValuePat (PVarE "m'"), PValuePat (PVarE "n'"), PPatVar "x"], PDataPat "ls" [PValuePat (PVarE "n'"), PValuePat (PVarE "m'"), PPatVar "y"]], PApplyMultiE (PVarE "cong") [PTypeE "Nat" [] [], PTypeE "Nat" [] [], PLambdaE (Just "k") (PDataE "suc" [PVarE "k"]), PVarE "m'", PVarE "n'", PApplyMultiE (PVarE "antisym") [PVarE "m'", PVarE "n'", PVarE "x", PVarE "y"]])]
 
-antisymWCDef :: TopExpr
-antisymWCDef = DefCaseE "antisymWC" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
-  [([Wildcard, Wildcard, Wildcard, Wildcard], DataE "refl" [])]
+antisymWCDef :: PTopExpr
+antisymWCDef =  PDefCaseE "antisymWC" [(Just "m", PTypeE "Nat" [] []), (Just "n", PTypeE "Nat" [] []), (Nothing, PTypeE "Lte" [] [PVarE "m", PVarE "n"]), (Nothing, PTypeE "Lte" [] [PVarE "n", PVarE "m"])] (PTypeE "Eq" [PTypeE "Nat" [] [], PVarE "m"] [PVarE "n"])
+  [([PWildcard, PWildcard, PWildcard, PWildcard], PDataE "refl" [])]
 
 --(data (Vec {(A : (Universe 0))} {(_ : Nat)}
 --  {[nil  : (Vec A <zero>)]
 --   [cons (n : Nat) (_ : A) (_ : (Vec A n)) : (Vec A <suc n>)]})
-vecDef :: TopExpr
-vecDef = DataDecE "Vec" [("A", (UniverseE 0))] [("_", TypeE "Nat" [] [])]
-  [("nil", [], (TypeE "Vec" [VarE "A"] [DataE "zero" []])),
-   ("cons", [("n", TypeE "Nat" [] []), ("_", VarE "A"), ("_", TypeE "Vec" [VarE "A"] [VarE "n"])], (TypeE "Vec" [VarE "A"] [DataE "suc" [VarE "n"]]))]
+vecDef :: PTopExpr
+vecDef = PDataDecE "Vec" [(Just "A", (PUniverseE 0))] [(Nothing, PTypeE "Nat" [] [])]
+  [("nil", [], (PTypeE "Vec" [PVarE "A"] [PDataE "zero" []])),
+   ("cons", [(Just "n", PTypeE "Nat" [] []), (Nothing, PVarE "A"), (Nothing, PTypeE "Vec" [PVarE "A"] [PVarE "n"])], (PTypeE "Vec" [PVarE "A"] [PDataE "suc" [PVarE "n"]]))]
