@@ -1,0 +1,53 @@
+; Basic functions
+
+(define ((id (A : (Universe 0)) (x : A)) : A) x)
+
+(define ((comp (A : (Universe 0)) (B : (Universe 0)) (C : B -> (Universe 0)) (f : (Π (b : B) (C b))) (g : A -> B) (a : A)) : (C (g a)))
+  (f (g a)))
+
+; Sample programs with inductive data
+
+(data Nat {} {}
+  {[zero : <Nat {} {}>]
+   [suc (_ : <Nat {} {}>) : <Nat {} {}>]})
+
+(define (z : <Nat {} {}>) <zero>)
+
+(define (one : <Nat {} {}>) <suc <zero>>)
+
+(data Eq {(A : (Universe 0)) (x : A)} {(_ : A)}
+  {[refl  : <Eq {A x} {x}>]})
+
+ (define (r : <Eq {<Nat {} {}> <zero>} {<zero>}>) <refl>)
+
+;(define (ir : <Eq {<Nat {} {}> <zero>} {<suc <zero>>}>) <refl>)
+
+; Sample programs with pattern matching
+
+(define ((plus (x : <Nat {} {}>) (y : <Nat {} {}>)) : <Nat {} {}>)
+  {[[<zero> $n] n]
+   [[<suc $m> $n] <suc (plus m n)>]})
+
+(define ((cong (A : (Universe 0)) (B : (Universe 0)) (f : A -> B) (x : A) (y : A) (_ : <Eq {A x} {y}>)) : <Eq {B (f x)} {(f y)}>)
+  {[[_ _ _ _ _ <refl>] <refl>]})
+
+(define ((plusZero (n : <Nat {} {}>)) : <Eq {<Nat {} {}> (plus n <zero>)} {n}>)
+  {[[<zero>] <refl>]
+   [[<suc $m>] (cong <Nat {} {}> <Nat {} {}> (lambda [$k] <suc k>) (plus m <zero>) m (plusZero m))]})
+
+;(define ((axiomK (A : (Universe 0)) (a : A) (P : <Eq {A a} {a}> -> (Universe 0)) (p : (P <refl>)) (e : <Eq {A a} {a}>)) : (P e))
+;  {[[_ _ _ _ <refl>] p]})
+
+(data Lte {} {(_ : <Nat {} {}>) (_ : <Nat {} {}>)}
+  {[lz (n : <Nat {} {}>) : <Lte {} {<zero> n}>]
+   [ls (m : <Nat {} {}>) (n : <Nat {} {}>) (_ : <Lte {} {m n}>) : <Lte {} {<suc m> <suc n>}>]})
+
+(define ((antisym (m : <Nat {} {}>) (n : <Nat {} {}>) (_ : <Lte {} {m n}>) (_ : <Lte {} {n m}>)) : <Eq {<Nat {} {}> m} {n}>)
+  {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]
+   [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong <Nat {} {}> <Nat {} {}> (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})
+
+; vector
+
+(data Vec {(A : (Universe 0))} {(_ : <Nat {} {}>)}
+  {[nil  : <Vec {A} {<zero>}>]
+   [cons (n : <Nat {} {}>) (_ : A) (_ : <Vec {A} {n}>) : <Vec {A} {<suc n>}>]})

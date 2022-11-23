@@ -10,6 +10,10 @@ import           Text.Parsec.String
 import qualified Text.Parsec.Token      as P
 import           Control.Monad.Identity (Identity)
 
+import           System.Directory             (doesFileExist, getHomeDirectory)
+import           System.IO
+import           System.Environment           (getArgs)
+
 import Control.Exception.Safe hiding (try)
 import Control.Monad.Except
 import Control.Monad.Trans.State.Strict
@@ -18,35 +22,27 @@ import qualified Control.Egison as Egison
 
 main :: IO ()
 main = do
-  let topExprs = [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, plusZeroDef, axiomKDef, lteDef, antisymDef, antisymWCDef]
-  Right topExprs' <- runCheckM (mapM desugarTopExpr topExprs)
-  let envV = initTopVEnv topExprs'
-  let envT = initTopTEnv topExprs'
-  let envD = initTopDEnv topExprs'
-  let envC = initTopCEnv topExprs'
-  let env = (envV, envT, envD, envC)
-  mapM_ (\(e, e') -> do
-           putStrLn ("input: " ++ show e)
-           ret <- runCheckM (checkTopExpr env e')
-           case ret of
-             Left err -> print err
-             Right expr -> putStrLn ("output: " ++ show expr))
-    (zip topExprs topExprs')
-  liftIO $ putStrLn $ "parser test:"
-  let ret1 = parseTopExpr "(define (z:Nat) <zero>)"
-  let ret2 = parseTopExpr "(define (z : Nat) <zero>)"
-  let ret3 = parseTopExpr "(define (one : Nat) <suc <zero>>)"
-  let ret4 = parseTopExpr "(data Nat {} {} {[zero : <Nat {} {}>] [suc (n : <Nat {} {}>) : <Nat {} {}>]})"
-  let ret5 = parseTopExpr "(define ((id (A : (Universe 0)) (x : A)) : A) x)"
-  let ret6 = parseTopExpr "(define ((plus (x : <Nat {} {}>) (y : <Nat {} {}>)) : <Nat {} {}>) {[[<zero> $n] n] [[<suc $m> $n] <suc (plus m n)>]})"
-  let ret7 = parseTopExpr "(define ((antisym (m : <Nat {} {}>) (n : <Nat {} {}>) (_ : <Lte {} {m n}>) (_ : <Lte {} {n m}>)) : <Eq {<Nat {} {}> m} {n}>) {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>] [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong <Nat {} {}> <Nat {} {}> (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})"
-  liftIO $ putStrLn $ show ret1
-  liftIO $ putStrLn $ show ret2
-  liftIO $ putStrLn $ show ret3
-  liftIO $ putStrLn $ show ret4
-  liftIO $ putStrLn $ show ret5
-  liftIO $ putStrLn $ show ret6
-  liftIO $ putStrLn $ show ret7
+  [file] <- getArgs
+  liftIO (putStrLn ("file: " ++ file))
+  ret <- runCheckM (do
+    topExprs <- loadFile file
+    liftIO (putStrLn ("topExprs: " ++ show topExprs))
+    topExprs' <- mapM desugarTopExpr topExprs
+    let envV = initTopVEnv topExprs'
+    let envT = initTopTEnv topExprs'
+    let envD = initTopDEnv topExprs'
+    let envC = initTopCEnv topExprs'
+    let env = (envV, envT, envD, envC)
+    liftIO (putStrLn ("test"))
+    mapM_ (\e -> do
+             liftIO (putStrLn ("input: " ++ show e))
+             e' <- desugarTopExpr e >>= checkTopExpr env
+             liftIO (putStrLn ("output: " ++ show e'))) [plusZeroDef]
+    mapM_ (\e -> do
+             liftIO (putStrLn ("input: " ++ show e))
+             e' <- checkTopExpr env e
+             liftIO (putStrLn ("output: " ++ show e'))) topExprs')
+  liftIO (putStrLn ("ret: " ++ show ret))
 
 --- Monad
 
@@ -64,6 +60,7 @@ instance Show PwlError where
   show (UnboundVariable n) = "Type error: " ++ n ++ " is unbound."
   show (ShouldBe s v) = "Type error: " ++ show v ++ " should be " ++ s ++ "."
   show (NotConvertible e1 e2) = "Type error: " ++ show e1 ++ " and " ++ show e2 ++ " are not convertible."
+  show (Parser msg) = "Parse error: " ++ msg
 
 instance Exception PwlError
 
@@ -110,6 +107,11 @@ runCheckM :: CheckM a -> IO (Either PwlError a)
 runCheckM ma = do
   (ret, _) <- runRuntimeT (runExceptT ma)
   return ret
+
+runCheckM_ :: CheckM a -> IO ()
+runCheckM_ ma = do
+  (_, _) <- runRuntimeT (runExceptT ma)
+  return ()
 
 instance MonadRuntime CheckM where
   fresh = lift fresh
@@ -198,20 +200,40 @@ data PPattern
 --- Parser
 ---
 
+loadFile :: FilePath -> CheckM [PTopExpr]
+loadFile file = do
+  doesExist <- liftIO $ doesFileExist file
+  unless doesExist $ throwError $ Default ("file does not exist: " ++ file)
+  input <- liftIO $ readUTF8File file
+  readTopExprs (removeShebang input)
+
+removeShebang :: String -> String
+removeShebang cs@('#':'!':_) = ';' : cs
+removeShebang cs             = cs
+
+readUTF8File :: FilePath -> IO String
+readUTF8File name = do
+  h <- openFile name ReadMode
+  hSetEncoding h utf8
+  hGetContents h
+
+readTopExprs :: String -> CheckM [PTopExpr]
+readTopExprs input = do
+  either (throwError . Parser) return (parseTopExprs input)
+
 readTopExpr :: String -> CheckM PTopExpr
 readTopExpr input = do
   either (throwError . Parser) return (parseTopExpr input)
 
+parseTopExprs :: String -> Either String [PTopExpr]
+parseTopExprs = doParse $ do
+  ret <- whiteSpace >> endBy topExpr whiteSpace
+  eof
+  return ret
 
 parseTopExpr :: String -> Either String PTopExpr
 parseTopExpr = doParse $ do
   ret <- whiteSpace >> topExpr
-  whiteSpace >> eof
-  return ret
-
-parseExpr :: String -> Either String PExpr
-parseExpr = doParse $ do
-  ret <- whiteSpace >> expr
   whiteSpace >> eof
   return ret
 
@@ -308,12 +330,24 @@ matchClause = brackets (do
   return (ps, b))
 
 expr :: Parser PExpr
-expr = try varExpr
-   <|> try dataExpr
-   <|> try typeExpr
-   <|> try universeExpr
-   <|> try lambdaExpr
-   <|> try applyExpr
+expr = try arrowExpr
+   <|> try expr'
+
+expr' :: Parser PExpr
+expr' = try varExpr
+    <|> try dataExpr
+    <|> try typeExpr
+    <|> try universeExpr
+    <|> try lambdaExpr
+    <|> try piExpr
+    <|> try applyExpr
+
+arrowExpr :: Parser PExpr
+arrowExpr = do
+  e1 <- expr'
+  string "->" >> whiteSpace
+  e2 <- expr'
+  return (PArrowE e1 e2)
 
 varExpr :: Parser PExpr
 varExpr = do
@@ -349,6 +383,14 @@ lambdaExpr = parens (do
   as <- brackets (sepEndBy (char '$' >> Just <$> ident) whiteSpace)
   b <- expr
   return (PLambdaMultiE as b))
+
+piExpr :: Parser PExpr
+piExpr = parens (do
+  char 'Π'
+  whiteSpace
+  (n, t) <- mNameWithType
+  b <- expr
+  return (PPiE n t b))
 
 applyExpr :: Parser PExpr
 applyExpr = parens (do
@@ -416,6 +458,7 @@ reservedOperators =
   [ ":"
   , "$"
   , "_"
+  , "->"
   , "..."]
 
 reserved :: String -> Parser ()
@@ -839,8 +882,7 @@ evalWHNF env (ApplyMultiE e es) = do
       case ret of
         CaseE _ _ -> return (ApplyMultiE e es)
         _ -> return ret
-    LambdaMultiE _ _ -> evalWHNF env (foldl (\f a -> ApplyE e a) e' es)
-    _ -> throwError (Default "evalWHNF: not function")
+    _ -> evalWHNF env (foldl (\f a -> ApplyE e a) e' es)
 evalWHNF env (ApplyE e1 e2) = do
   e1' <- evalWHNF env e1
   case e1' of
