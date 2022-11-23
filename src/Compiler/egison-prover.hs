@@ -36,13 +36,18 @@ main = do
   let ret1 = parseTopExpr "(define (z:Nat) <zero>)"
   let ret2 = parseTopExpr "(define (z : Nat) <zero>)"
   let ret3 = parseTopExpr "(define (one : Nat) <suc <zero>>)"
-  let ret4 = parseTopExpr "(data Nat {} {} {[zero : Nat] [suc (n : Nat) : Nat]})"
-  let ret5 = parseTopExpr "(data Nat {} {} {[zero : Nat] [suc (_ : Nat) : Nat]})"
+  let ret4 = parseTopExpr "(data Nat {} {} {[zero : <Nat {} {}>] [suc (n : <Nat {} {}>) : <Nat {} {}>]})"
+  let ret5 = parseTopExpr "(define ((id (A : (Universe 0)) (x : A)) : A) x)"
+  let ret6 = parseTopExpr "(define ((plus (x : <Nat {} {}>) (y : <Nat {} {}>)) : <Nat {} {}>) {[[<zero> $n] n] [[<suc $m> $n] <suc (plus m n)>]})"
+  let ret7 = parseTopExpr "(define ((antisym (m : <Nat {} {}>) (n : <Nat {} {}>) (_ : <Lte {} {m n}>) (_ : <Lte {} {n m}>)) : <Eq {<Nat {} {}> m} {n}>) {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>] [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong <Nat {} {}> <Nat {} {}> (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})"
   liftIO $ putStrLn $ show ret1
   liftIO $ putStrLn $ show ret2
   liftIO $ putStrLn $ show ret3
   liftIO $ putStrLn $ show ret4
-  
+  liftIO $ putStrLn $ show ret5
+  liftIO $ putStrLn $ show ret6
+  liftIO $ putStrLn $ show ret7
+
 --- Monad
 
 data PwlError
@@ -233,10 +238,10 @@ ident :: Parser String
 ident = P.identifier lexer
 
 topExpr :: Parser PTopExpr
-topExpr = try defExpr
---      <|> defFunExpr
---      <|> defCaseExpr
-      <|> try dataDecExpr
+topExpr = try dataDecExpr
+      <|> try defCaseExpr
+      <|> try defFunExpr
+      <|> try defExpr
       <?> "top-level expression"
 
 dataDecExpr :: Parser PTopExpr
@@ -266,9 +271,49 @@ defExpr = parens (do
   b <- expr
   return (PDefE s t b))
 
+defFunExpr :: Parser PTopExpr
+defFunExpr = parens (do
+  keywordDefine
+  (s, as, t) <- parens (do
+    (s, as) <- parens (do
+      s <- ident
+      whiteSpace
+      as <- sepEndBy mNameWithType whiteSpace
+      return (s, as))
+    char ':' >> whiteSpace
+    t <- expr
+    return (s, as, t))
+  b <- expr
+  return (PDefFunE s as t b))
+
+defCaseExpr :: Parser PTopExpr
+defCaseExpr = parens (do
+  keywordDefine
+  (s, as, t) <- parens (do
+    (s, as) <- parens (do
+      s <- ident
+      whiteSpace
+      as <- sepEndBy mNameWithType whiteSpace
+      return (s, as))
+    char ':' >> whiteSpace
+    t <- expr
+    return (s, as, t))
+  mcs <- braces (sepEndBy matchClause whiteSpace)
+  return (PDefCaseE s as t mcs))
+
+matchClause :: Parser ([PPattern], PExpr)
+matchClause = brackets (do
+  ps <- brackets (sepEndBy pat whiteSpace)
+  b <- expr
+  return (ps, b))
+
 expr :: Parser PExpr
 expr = try varExpr
    <|> try dataExpr
+   <|> try typeExpr
+   <|> try universeExpr
+   <|> try lambdaExpr
+   <|> try applyExpr
 
 varExpr :: Parser PExpr
 varExpr = do
@@ -277,10 +322,49 @@ varExpr = do
 
 dataExpr :: Parser PExpr
 dataExpr = angles (do
-  s <- ident
+  s <- (:) <$> lower <*> ident
   whiteSpace
   args <- sepEndBy expr whiteSpace
   return (PDataE s args))
+
+typeExpr :: Parser PExpr
+typeExpr = angles (do
+  s <- (:) <$> upper <*> ident
+  whiteSpace
+  ts <- braces (sepEndBy expr whiteSpace)
+  is <- braces (sepEndBy expr whiteSpace)
+  return (PTypeE s ts is))
+
+universeExpr :: Parser PExpr
+universeExpr = parens (do
+  keywordUniverse
+  whiteSpace
+  n <- P.natural lexer
+  return (PUniverseE n))
+
+lambdaExpr :: Parser PExpr
+lambdaExpr = parens (do
+  keywordLambda
+  whiteSpace
+  as <- brackets (sepEndBy (char '$' >> Just <$> ident) whiteSpace)
+  b <- expr
+  return (PLambdaMultiE as b))
+
+applyExpr :: Parser PExpr
+applyExpr = parens (do
+  f <- expr
+  whiteSpace
+  as <- sepEndBy expr whiteSpace
+  return (PApplyMultiE f as))
+
+pat :: Parser PPattern
+pat = try (char '_' >> return PWildcard)
+  <|> try (char '$' >> ident >>= return . PPatVar)
+  <|> try (char '#' >> expr >>= return . PValuePat)
+  <|> try (angles (do c <- ident
+                      whiteSpace
+                      args <- sepEndBy pat whiteSpace
+                      return (PDataPat c args)))
 
 nameWithType :: Parser (Name, PExpr)
 nameWithType = parens (do
@@ -291,10 +375,10 @@ nameWithType = parens (do
 
 mNameWithType :: Parser (MName, PExpr)
 mNameWithType = parens (do
-  s <- ident
+  s <- (try (char '_' >> return Nothing) <|> try (Just <$> ident))
   whiteSpace >> char ':' >> whiteSpace
   t <- expr
-  return (Just s, t))
+  return (s, t))
 
 egisonDef :: P.GenLanguageDef String () Identity
 egisonDef =
@@ -324,6 +408,7 @@ reservedKeywords =
   , "define"
   , "case"
   , "lambda"
+  , "Universe"
   , "undefined"]
 
 reservedOperators :: [String]
@@ -341,6 +426,8 @@ reservedOp = P.reservedOp lexer
 
 keywordData                 = reserved "data"
 keywordDefine               = reserved "define"
+keywordUniverse             = reserved "Universe"
+keywordLambda               = reserved "lambda"
 
 ---
 --- Environment
@@ -979,39 +1066,39 @@ compDef = PDefFunE "comp"
 ---
 
 --(data Nat {} {}
---  {[zero : Nat]
---   [suc (_ : Nat) : Nat]})
+--  {[zero : <Nat {} {}>]
+--   [suc (_ : <Nat {} {}>) : <Nat {} {}>]})
 natDef :: PTopExpr
 natDef = PDataDecE "Nat" [] []
   [("zero", [], PTypeE "Nat" [] []),
    ("suc", [(Nothing, PTypeE "Nat" [] [])], PTypeE "Nat" [] [])]
 
--- (define (z : Nat) <zero>)
+-- (define (z : <Nat {} {}>) <zero>)
 zeroDef :: PTopExpr
 zeroDef = PDefE "z"
   (PTypeE "Nat" [] [])
   (PDataE "zero" [])
 
--- (define (one : Nat) <suc <zero>>)
+-- (define (one : <Nat {} {}>) <suc <zero>>)
 oneDef :: PTopExpr
 oneDef = PDefE "one"
   (PTypeE "Nat" [] [])
   (PDataE "suc" [PDataE "zero" []])
 
 --(data Eq {(A : (Universe 0)) (x : A)} {A}
---  {[refl  : (Eq A x x)]})
+--  {[refl  : (Eq {A x} {x})]})
 eqDef :: PTopExpr
 eqDef = PDataDecE "Eq" [(Just "A", PUniverseE 0), (Just "x", PVarE "A")] [(Nothing, PVarE "A")]
   [("refl", [], PTypeE "Eq" [PVarE "A", PVarE "x"] [PVarE "x"])]
 
--- (define (r : <Eq {Nat <zero>} {<zero>}>)
+-- (define (r : <Eq {<Nat {} {}> <zero>} {<zero>}>)
 --   <refl>)
 reflDef :: PTopExpr
 reflDef = PDefE "r"
   (PTypeE "Eq" [PTypeE "Nat" [] [], PDataE "zero" []] [PDataE "zero" []])
   (PDataE "refl" [])
 
--- (define (ir : <Eq {Nat <zero>} {<suc <zero>>}>)
+-- (define (ir : <Eq {<Nat {} {}> <zero>} {<suc <zero>>}>)
 --   <refl>)
 iReflDef :: PTopExpr
 iReflDef = PDefE "ir"
@@ -1022,7 +1109,7 @@ iReflDef = PDefE "ir"
 --- Sample programs with pattern matching
 ---
 
---(define ((plus (x : Nat) (y : Nat)) : Nat)
+--(define ((plus (x : <Nat {} {}>) (y : <Nat {} {}>)) : <Nat {} {}>)
 --  {[[<zero> $n] n]
 --   [[<suc $m> $n] <suc (plus m n)>]})
 plusDef :: PTopExpr
@@ -1030,13 +1117,13 @@ plusDef = PDefCaseE "plus" [(Just "x", PTypeE "Nat" [] []), (Just "y", PTypeE "N
   [([PDataPat "zero" [], PPatVar "n"], PVarE "n"),
    ([PDataPat "suc" [(PPatVar "m")], PPatVar "n"], PDataE "suc" [PApplyMultiE (PVarE "plus") [PVarE "m", PVarE "n"]])]
 
---(define ((cong (A : (Universe 0)) (B : (Universe 0)) (f : A -> B) (x : A) (y : A) (_ : (Eq A x y))) : (Eq B (f x) (f y)))
+--(define ((cong (A : (Universe 0)) (B : (Universe 0)) (f : A -> B) (x : A) (y : A) (_ : <Eq {A x} {y}>)) : <Eq {B (f x)} {(f y)}>)
 --  {[[_ _ _ _ _ <refl>] <refl>]})
 congDef :: PTopExpr
 congDef = PDefCaseE "cong" [(Just "A", (PUniverseE 0)), (Just "B", (PUniverseE 0)), (Just "f", PArrowE (PVarE "A") (PVarE "B")), (Just "x", PVarE "A"), (Just "y", PVarE "A"), (Nothing, PTypeE "Eq" [PVarE "A", PVarE "x"] [PVarE "y"])] (PTypeE "Eq" [PVarE "B", PApplyE (PVarE "f") (PVarE "x")] [PApplyE (PVarE "f") (PVarE "y")])
   [([PWildcard, PWildcard, PWildcard, PWildcard, PWildcard, PDataPat "refl" []], PDataE "refl" [])]
 
---(define ((plusZero (n : Nat)) : (Eq Nat (plus n <zero>) n))
+--(define ((plusZero (n : <Nat {} {}>)) : <Eq {<Nat {} {}> (plus n <zero>)} {n}>)
 --  {[<zero> <refl>]
 --   [<suc $m> (cong (lambda [$k] <suc k>) (plus m <zero>) m (plusZero m))]})
 plusZeroDef :: PTopExpr
@@ -1050,17 +1137,17 @@ axiomKDef :: PTopExpr
 axiomKDef = PDefCaseE "axiomK" [(Just "A", (PUniverseE 0)), (Just "a", (PVarE "A")), (Just "P", (PArrowE (PTypeE "Eq" [(PVarE "A"), (PVarE "a")] [(PVarE "a")]) (PUniverseE 0))), (Just "p", (PApplyE (PVarE "P") (PDataE "refl" []))), (Just "e", (PTypeE "Eq" [(PVarE "A"), (PVarE "a")] [(PVarE "a")]))] (PApplyE (PVarE "P") (PVarE "e"))
   [([PWildcard, PWildcard, PWildcard, PWildcard, PDataPat "refl" []], PVarE "p")]
 
---(data Lte {} {Nat Nat}
---  {[lz (n : Nat) : (Lte <zero> n)]
---   [ls (m : Nat) (n : Nat) (_ : (Lte m n)) : (Lte <suc m> <suc n>)]})
+--(data Lte {} {<Nat {} {}> <Nat {} {}>}
+--  {[lz (n : <Nat {} {}>) : <Lte {} {<zero> n}>]
+--   [ls (m : <Nat {} {}>) (n : <Nat {} {}>) (_ : <Lte {} {m n}>) : <Lte {} {<suc m> <suc n>}>]})
 lteDef :: PTopExpr
 lteDef = PDataDecE "Lte" [] [(Nothing, PTypeE "Nat" [] []), (Nothing, PTypeE "Nat" [] [])]
   [("lz", [(Just "n", PTypeE "Nat" [] [])], PTypeE "Lte" [] [PDataE "zero" [], PVarE "n"]),
    ("ls", [(Just "m", PTypeE "Nat" [] []), (Just "n", PTypeE "Nat" [] []), (Nothing, PTypeE "Lte" [] [PVarE "m", PVarE "n"])], (PTypeE "Lte" [] [PDataE "suc" [PVarE "m"], PDataE "suc" [PVarE "n"]]))]
 
---(define ((antisym (m : Nat) (n : Nat) (_ : (Lte m n)) (_ : (Lte n m))) : (Eq Nat m n))
+--(define ((antisym (m : <Nat {} {}>) (n : <Nat {} {}>) (_ : <Lte {} {m n}>) (_ : <Lte {} {n m}>)) : <Eq {<Nat {} {}> m} {n}>)
 --  {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]
---   [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong Nat Nat (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})
+--   [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong <Nat {} {}> <Nat {} {}> (lambda [$k] <suc k>) m' n' (antisym m' n' x y))]})
 antisymDef :: PTopExpr
 antisymDef = PDefCaseE "antisym" [(Just "m", PTypeE "Nat" [] []), (Just "n", PTypeE "Nat" [] []), (Nothing, PTypeE "Lte" [] [PVarE "m", PVarE "n"]), (Nothing, PTypeE "Lte" [] [PVarE "n", PVarE "m"])] (PTypeE "Eq" [PTypeE "Nat" [] [], PVarE "m"] [PVarE "n"])
   [([PDataPat "zero" [], PDataPat "zero" [], PDataPat "lz" [PValuePat (PDataE "zero" [])], PDataPat "lz" [PValuePat (PDataE "zero" [])]], PDataE "refl" []),
@@ -1070,9 +1157,9 @@ antisymWCDef :: PTopExpr
 antisymWCDef =  PDefCaseE "antisymWC" [(Just "m", PTypeE "Nat" [] []), (Just "n", PTypeE "Nat" [] []), (Nothing, PTypeE "Lte" [] [PVarE "m", PVarE "n"]), (Nothing, PTypeE "Lte" [] [PVarE "n", PVarE "m"])] (PTypeE "Eq" [PTypeE "Nat" [] [], PVarE "m"] [PVarE "n"])
   [([PWildcard, PWildcard, PWildcard, PWildcard], PDataE "refl" [])]
 
---(data (Vec {(A : (Universe 0))} {(_ : Nat)}
---  {[nil  : (Vec A <zero>)]
---   [cons (n : Nat) (_ : A) (_ : (Vec A n)) : (Vec A <suc n>)]})
+--(data Vec {(A : (Universe 0))} {(_ : <Nat {} {}>)}
+--  {[nil  : <Vec {A} {<zero>}]
+--   [cons (n : <Nat {} {}>) (_ : A) (_ : <Vec {A} {n}>) : <Vec {A} {<suc n>}>]})
 vecDef :: PTopExpr
 vecDef = PDataDecE "Vec" [(Just "A", (PUniverseE 0))] [(Nothing, PTypeE "Nat" [] [])]
   [("nil", [], (PTypeE "Vec" [PVarE "A"] [PDataE "zero" []])),
