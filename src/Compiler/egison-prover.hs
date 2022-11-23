@@ -13,7 +13,7 @@ import qualified Control.Egison as Egison
 
 main :: IO ()
 main = do
-  let topExprs = [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, plusZeroDef, axiomKDef, lteDef, antisymDef]
+  let topExprs = [idDef, compDef, natDef, zeroDef, oneDef, eqDef, reflDef, iReflDef, plusDef, congDef, plusZeroDef, axiomKDef, lteDef, antisymDef, antisymWCDef]
   Right topExprs' <- runCheckM (mapM desugarTopExpr topExprs)
   let envV = initTopVEnv topExprs'
   let envT = initTopTEnv topExprs'
@@ -132,6 +132,15 @@ data Pattern
   | DataPat Name [Pattern]
   | ValuePat Expr
  deriving (Show, Eq)
+
+---
+--- Parser
+---
+
+
+---
+--- Environment
+---
 
 data PatternM = PatternM
 instance Matcher PatternM Pattern
@@ -327,7 +336,7 @@ check env (CaseE ts mcs) a = do
                    b' <- check (addToTEnv env tRet) b (substitute vRet a)
                    return (p', b')
                ) mcs
-  -- TODO: coverage check
+--  checkCoverage env (map snd ts) (map fst mcs)
   return (CaseE ts mcs')
 check env e a = do
   (b, t) <- infer env e
@@ -701,7 +710,43 @@ unify us = throwError (Default ("unify should not reach here:" ++ show us))
 -- isAccecible1 _ (PatVar _) = False
 -- isAccecible1 x (DataPat _ ps) = isAccecible x ps
 -- isAccecible1 x (ValuePat _) = False
-     
+
+checkCoverage :: Env -> [TVal] -> [[Pattern]] -> CheckM ()
+checkCoverage env ts pss = checkCoverage' env [(map (\_ -> Wildcard) ts)] ts pss
+
+checkCoverage' :: Env -> [[Pattern]] -> [TVal] -> [[Pattern]] -> CheckM ()
+checkCoverage' _ [] _ _ = return ()
+checkCoverage' env (qs : qss) ts (ps : pss) = do
+  b1 <- matchPattern qs ps
+  if b1
+    then do
+      nss <- getNeighbors env ts ps
+      checkCoverage' env nss ts pss
+    else do
+      b2 <- isAbsurd ts qs
+      if b2
+        then checkCoverage' env qss ts (ps : pss)
+        else throwError (Default "checkCoverage': patterns are not exhaustive")
+checkCoverage' _ _ _ _ = throwError (Default "checkCoverage': should not reach here")
+
+matchPattern :: [Pattern] -> [Pattern] -> CheckM Bool
+matchPattern [] [] = return True
+matchPattern (q : qs) (p : ps) = (&&) <$> matchPattern1 q p <*> matchPattern qs ps
+
+matchPattern1 :: Pattern -> Pattern -> CheckM Bool
+matchPattern1 Wildcard _ = return True
+matchPattern1 (DataPat c1 qs) (DataPat c2 ps) =
+  if c1 == c2
+    then matchPattern qs ps
+    else return False
+matchPattern1 q p = return (q == p)
+           
+isAbsurd :: [TVal] -> [Pattern] -> CheckM Bool
+isAbsurd _ _ = return True
+           
+getNeighbors :: Env -> [TVal] -> [Pattern] -> CheckM [[Pattern]]
+getNeighbors = undefined
+           
 ---
 --- Sample programs without pattern matching
 ---
@@ -813,6 +858,10 @@ antisymDef :: TopExpr
 antisymDef = DefCaseE "antisym" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
   [([DataPat "zero" [], DataPat "zero" [], DataPat "lz" [ValuePat (DataE "zero" [])], DataPat "lz" [ValuePat (DataE "zero" [])]], DataE "refl" []),
    ([DataPat "suc" [PatVar "m'"], DataPat "suc" [PatVar "n'"], DataPat"ls" [ValuePat (VarE "m'"), ValuePat (VarE "n'"), PatVar "x"], DataPat "ls" [ValuePat (VarE "n'"), ValuePat (VarE "m'"), PatVar "y"]], ApplyMultiE (VarE "cong") [TypeE "Nat" [] [], TypeE "Nat" [] [], LambdaE "k" (DataE "suc" [VarE "k"]), VarE "m'", VarE "n'", ApplyMultiE (VarE "antisym") [VarE "m'", VarE "n'", VarE "x", VarE "y"]])]
+
+antisymWCDef :: TopExpr
+antisymWCDef = DefCaseE "antisymWC" [("m", TypeE "Nat" [] []), ("n", TypeE "Nat" [] []), ("_", TypeE "Lte" [] [VarE "m", VarE "n"]), ("_", TypeE "Lte" [] [VarE "n", VarE "m"])] (TypeE "Eq" [TypeE "Nat" [] [], VarE "m"] [VarE "n"])
+  [([Wildcard, Wildcard, Wildcard, Wildcard], DataE "refl" [])]
 
 --(data (Vec {(A : (Universe 0))} {(_ : Nat)}
 --  {[nil  : (Vec A <zero>)]
