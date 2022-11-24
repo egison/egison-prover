@@ -33,11 +33,6 @@ main = do
     let envD = initTopDEnv topExprs'
     let envC = initTopCEnv topExprs'
     let env = (envV, envT, envD, envC)
-    liftIO (putStrLn ("test"))
-    mapM_ (\e -> do
-             liftIO (putStrLn ("input: " ++ show e))
-             e' <- desugarTopExpr e >>= checkTopExpr env
-             liftIO (putStrLn ("output: " ++ show e'))) [plusZeroDef]
     mapM_ (\e -> do
              liftIO (putStrLn ("input: " ++ show e))
              e' <- checkTopExpr env e
@@ -269,7 +264,7 @@ topExpr = try dataDecExpr
 dataDecExpr :: Parser PTopExpr
 dataDecExpr = parens (do
   keywordData
-  s <- ident
+  s <- char '$' >> ident
   whiteSpace
   ts <- braces (sepEndBy mNameWithType whiteSpace)
   is <- braces (sepEndBy mNameWithType whiteSpace)
@@ -278,7 +273,7 @@ dataDecExpr = parens (do
 
 consDec :: Parser (Name, [(MName, PExpr)], PExpr)
 consDec = brackets (do
-  c <- ident
+  c <- char '$' >> ident
   whiteSpace
   as <- sepEndBy mNameWithType whiteSpace
   char ':' >> whiteSpace
@@ -298,7 +293,7 @@ defFunExpr = parens (do
   keywordDefine
   (s, as, t) <- parens (do
     (s, as) <- parens (do
-      s <- ident
+      s <- char '$' >> ident
       whiteSpace
       as <- sepEndBy mNameWithType whiteSpace
       return (s, as))
@@ -313,7 +308,7 @@ defCaseExpr = parens (do
   keywordDefine
   (s, as, t) <- parens (do
     (s, as) <- parens (do
-      s <- ident
+      s <- char '$' >> ident
       whiteSpace
       as <- sepEndBy mNameWithType whiteSpace
       return (s, as))
@@ -378,8 +373,7 @@ universeExpr = parens (do
 
 lambdaExpr :: Parser PExpr
 lambdaExpr = parens (do
-  keywordLambda
-  whiteSpace
+  char 'λ' >> whiteSpace
   as <- brackets (sepEndBy (char '$' >> Just <$> ident) whiteSpace)
   b <- expr
   return (PLambdaMultiE as b))
@@ -410,14 +404,14 @@ pat = try (char '_' >> return PWildcard)
 
 nameWithType :: Parser (Name, PExpr)
 nameWithType = parens (do
-  s <- ident
+  s <- char '$' >> ident
   whiteSpace >> char ':' >> whiteSpace
   t <- expr
   return (s, t))
 
 mNameWithType :: Parser (MName, PExpr)
 mNameWithType = parens (do
-  s <- (try (char '_' >> return Nothing) <|> try (Just <$> ident))
+  s <- (try (char '_' >> return Nothing) <|> try (char '$' >> ident >>= return . Just))
   whiteSpace >> char ':' >> whiteSpace
   t <- expr
   return (s, t))
@@ -449,7 +443,6 @@ reservedKeywords =
   [ "data"
   , "define"
   , "case"
-  , "lambda"
   , "Universe"
   , "undefined"]
 
@@ -470,7 +463,6 @@ reservedOp = P.reservedOp lexer
 keywordData                 = reserved "data"
 keywordDefine               = reserved "define"
 keywordUniverse             = reserved "Universe"
-keywordLambda               = reserved "lambda"
 
 ---
 --- Environment
