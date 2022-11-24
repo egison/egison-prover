@@ -18,11 +18,38 @@ source-repository head
   type: git
   location: https://github.com/egison/egison-prover.git
 
+Library
+  default-language:    Haskell2010
+  Build-Depends:
+      base >= 4.0 && < 5
+    , safe-exceptions
+    , transformers
+    , mtl
+    , sweet-egison
+    , parsec               >= 3.0
+    , megaparsec           >= 7.0.0   && < 12.0
+    , parser-combinators   >= 1.0     && < 2.0
+    , directory            >= 1.3.0
+  if !impl(ghc > 8.0)
+    Build-Depends: fail
+  Hs-Source-Dirs:  src
+  Exposed-Modules:
+                   Language.EgisonProver
+                   Language.EgisonProver.AST
+                   Language.EgisonProver.Parser
+                   Language.EgisonProver.Env
+                   Language.EgisonProver.Monad
+                   Language.EgisonProver.Desugar
+                   Language.EgisonProver.Check
+  ghc-options:  -O3 -Wall -Wno-name-shadowing -Wno-incomplete-patterns
+
+  
 Executable egison-prover
   default-language:    Haskell2010
   Main-is:             src/Compiler/egison-prover.hs
   Build-depends:
-      base >= 4.0 && < 5
+      egison-prover
+    , base >= 4.0 && < 5
     , safe-exceptions
     , transformers
     , mtl
