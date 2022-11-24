@@ -54,7 +54,7 @@
      "\\\&"
      "Π"
      "λ"
-     "->"
+     "→"
      ":"
      "@"
      "!"
@@ -131,7 +131,9 @@
 
 (defun egison-prover-keyword-indent-point (name)
   (cond ((equal "define" name) 2)
-        ((equal "lambda" name) 2)
+        ((equal "data" name) 2)
+        ((equal "λ" name) 2)
+        ((equal "Π" name) 2)
         ))
 
 (defun egison-prover-indent-line ()

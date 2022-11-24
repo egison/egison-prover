@@ -340,7 +340,7 @@ expr' = try varExpr
 arrowExpr :: Parser PExpr
 arrowExpr = do
   e1 <- expr'
-  string "->" >> whiteSpace
+  char '→' >> whiteSpace
   e2 <- expr'
   return (PArrowE e1 e2)
 
