@@ -241,11 +241,14 @@ nameWithType = parens (do
   return (s, t))
 
 mNameWithType :: Parser (MName, PExpr)
-mNameWithType = parens (do
-  s <- (try (char '_' >> return Nothing) <|> try (char '$' >> ident >>= return . Just))
-  whiteSpace >> char ':' >> whiteSpace
-  t <- expr
-  return (s, t))
+mNameWithType = try (parens (do
+                  s <- (try (char '_' >> return Nothing) <|> try (char '$' >> ident >>= return . Just))
+                  whiteSpace >> char ':' >> whiteSpace
+                  t <- expr
+                  return (s, t)))
+           <|> try (do
+                  t <- expr
+                  return (Nothing, t))
 
 egisonDef :: P.GenLanguageDef String () Identity
 egisonDef =

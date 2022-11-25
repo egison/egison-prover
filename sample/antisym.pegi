@@ -1,21 +1,21 @@
 (data $Nat {} {}
   {[$zero : <Nat {} {}>]
-   [$suc (_ : <Nat {} {}>) : <Nat {} {}>]})
+   [$suc (<Nat {} {}>) : <Nat {} {}>]})
 
-(data $Eq {($A : (Universe 0)) ($x : A)} {(_ : A)}
+(data $Eq {($A : (Universe 0)) ($x : A)} {A}
   {[$refl : <Eq {A x} {x}>]})
 
 (define (($plus ($x : <Nat {} {}>) ($y : <Nat {} {}>)) : <Nat {} {}>)
   {[[<zero> $n] n]
    [[<suc $m> $n] <suc (plus m n)>]})
 
-(define (($cong ($A : (Universe 0)) ($B : (Universe 0)) ($f : A → B) ($x : A) ($y : A) (_ : <Eq {A x} {y}>)) : <Eq {B (f x)} {(f y)}>)
+(define (($cong ($A : (Universe 0)) ($B : (Universe 0)) ($f : A → B) ($x : A) ($y : A) (<Eq {A x} {y}>)) : <Eq {B (f x)} {(f y)}>)
   {[[_ _ _ _ _ <refl>] <refl>]})
 
-(data $Lte {} {(_ : <Nat {} {}>) (_ : <Nat {} {}>)}
+(data $Lte {} {(<Nat {} {}>) (<Nat {} {}>)}
   {[$lz ($n : <Nat {} {}>) : <Lte {} {<zero> n}>]
-   [$ls ($m : <Nat {} {}>) ($n : <Nat {} {}>) (_ : <Lte {} {m n}>) : <Lte {} {<suc m> <suc n>}>]})
+   [$ls ($m : <Nat {} {}>) ($n : <Nat {} {}>) <Lte {} {m n}> : <Lte {} {<suc m> <suc n>}>]})
 
-(define (($antisym ($m : <Nat {} {}>) ($n : <Nat {} {}>) (_ : <Lte {} {m n}>) (_ : <Lte {} {n m}>)) : <Eq {<Nat {} {}> m} {n}>)
+(define (($antisym ($m : <Nat {} {}>) ($n : <Nat {} {}>) <Lte {} {m n}> <Lte {} {n m}>) : <Eq {<Nat {} {}> m} {n}>)
   {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]
    [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong <Nat {} {}> <Nat {} {}> (λ [$k] <suc k>) m' n' (antisym m' n' x y))]})
