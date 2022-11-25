@@ -6,10 +6,13 @@ module Language.EgisonProver.Monad
        (
        -- * AST
          CheckM
-       , PwlError (..)
+       , CheckPatternM
+       , ProverError (..)
+       , PMError (..)
        , MonadRuntime (..)
        , runCheckM
        , runCheckM_
+       , runCheckPatternM
        ) where
 
 import Language.EgisonProver.AST
@@ -18,23 +21,27 @@ import Control.Exception.Safe hiding (try)
 import Control.Monad.Except
 import Control.Monad.Trans.State.Strict
 
-data PwlError
+data ProverError
   = Default String
   | TypeDoesNotMatch Expr Expr
   | UnboundVariable Name
   | ShouldBe String Expr
   | NotConvertible Expr Expr
+  | UnunifiablePattern
   | Parser String
 
-instance Show PwlError where
+instance Show ProverError where
   show (Default msg) = "Type error: " ++ msg
   show (TypeDoesNotMatch v t) = "Type error: the type of " ++ show v ++ " does not match " ++ show t ++ "."
   show (UnboundVariable n) = "Type error: " ++ n ++ " is unbound."
   show (ShouldBe s v) = "Type error: " ++ show v ++ " should be " ++ s ++ "."
   show (NotConvertible e1 e2) = "Type error: " ++ show e1 ++ " and " ++ show e2 ++ " are not convertible."
+  show UnunifiablePattern = "Type error: " ++ "ununifiable pattern"
   show (Parser msg) = "Parse error: " ++ msg
 
-instance Exception PwlError
+instance Exception ProverError
+
+data PMError = PMError String
 
 data RState = RState
   { indexCounter :: Int
@@ -73,9 +80,9 @@ runRuntimeT = flip runStateT initialRState
 evalRuntimeT :: Monad m => RuntimeT m a -> m a
 evalRuntimeT = flip evalStateT initialRState
 
-type CheckM = ExceptT PwlError RuntimeM
+type CheckM = ExceptT ProverError RuntimeM
 
-runCheckM :: CheckM a -> IO (Either PwlError a)
+runCheckM :: CheckM a -> IO (Either ProverError a)
 runCheckM ma = do
   (ret, _) <- runRuntimeT (runExceptT ma)
   return ret
@@ -88,3 +95,16 @@ runCheckM_ ma = do
 instance MonadRuntime CheckM where
   fresh = lift fresh
   addFresh s = lift (addFresh s)
+
+type CheckPatternM = ExceptT PMError CheckM
+
+instance MonadRuntime CheckPatternM where
+  fresh = lift fresh
+  addFresh s = lift (addFresh s)
+
+runCheckPatternM :: CheckPatternM a -> CheckM a
+runCheckPatternM ma = do
+  ret <- runExceptT ma
+  case ret of
+    Left _ -> throwError UnunifiablePattern
+    Right ret -> return ret

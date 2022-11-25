@@ -29,7 +29,7 @@ import Control.Monad.Except
 type Env = (VEnv, TEnv, DEnv, CEnv)
 type VEnv = [(Name, Expr)] -- Value environment
 type TEnv = [(Name, TVal)] -- Type environment
-type DEnv = [(Name, (Telescope, Indices))] -- Datatype enviroment
+type DEnv = [(Name, (Telescope, Indices, [Name]))] -- Datatype enviroment
 type CEnv = [(Name, (Telescope, Telescope, TVal))] -- Constructor enviroment
 
 initTopVEnv :: [TopExpr] -> VEnv
@@ -44,7 +44,7 @@ initTopTEnv (_ : rs) = initTopTEnv rs
 
 initTopDEnv :: [TopExpr] -> DEnv
 initTopDEnv [] = []
-initTopDEnv (DataDecE n ts is _ : rs) = (n, (ts, is)) : (initTopDEnv rs)
+initTopDEnv (DataDecE n ts is cs : rs) = (n, (ts, is, (map (\(c, _, _) -> c) cs))) : (initTopDEnv rs)
 initTopDEnv (_ : rs) = initTopDEnv rs
 
 initTopCEnv :: [TopExpr] -> CEnv
@@ -74,7 +74,7 @@ getFromTEnv (_, tenv, _, _) x = getFromEnv tenv x
      
 getFromDEnv :: Env -> Name -> CheckM (Telescope, Indices)
 getFromDEnv (_, _, denv, _) x = do
-  (ts, is) <- getFromEnv denv x
+  (ts, is, _) <- getFromEnv denv x
   tns <- mapM addFresh (map fst ts)
   ins <- mapM addFresh (map fst is)
   let tms = map (\(s, s') -> (s, VarE s')) (zip (map fst ts) tns)

@@ -56,11 +56,11 @@ check env e@(DataE c xs) a = do
     _ -> throwError (TypeDoesNotMatch e a')
 check env (CaseE ts mcs) a = do
   mcs' <- mapM (\(p, b) -> do
-                   (p', tRet, vRet) <- checkPattern env ts p
+                   (p', tRet, vRet) <- runCheckPatternM (checkPattern env ts p)
                    b' <- check (addToTEnv env tRet) b (substitute vRet a)
                    return (p', b')
                ) mcs
---  checkCoverage env (map snd ts) (map fst mcs)
+--  checkCoverage env ts (map fst mcs)
   return (CaseE ts mcs')
 check env e a = do
   (b, t) <- infer env e
@@ -325,44 +325,44 @@ isNeutral _ = False
 
 --- Type-checking for inductive patterns
 
-checkPattern :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM ([Pattern], [(Name, TVal)], [(Name, Expr)])
+checkPattern :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckPatternM ([Pattern], [(Name, TVal)], [(Name, Expr)])
 checkPattern env cs ps = do
   (ps', tRet, us, vs) <- checkPattern' env cs ps [] [] [] []
   vRet <- unify us
   mapM_ (\(x, y) ->
            if x == y
              then return ()
-             else throwError (Default "value pattern cannot unified"))
+             else lift $ throwError (Default "value pattern cannot unified"))
     (map (\(x, y) -> (substitute vRet x, substitute vRet y)) vs)
   return (ps', map (\(s, t) -> (s, substitute vRet t)) tRet, vRet)
 
-checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> [(Expr, Expr)] -> CheckM ([Pattern], [(Name, TVal)], [(Expr, Expr)], [(Expr, Expr)])
+checkPattern' :: Env -> [(Expr, TVal)] -> [Pattern] -> [Pattern] -> [(Name, TVal)] -> [(Expr, Expr)] -> [(Expr, Expr)] -> CheckPatternM ([Pattern], [(Name, TVal)], [(Expr, Expr)], [(Expr, Expr)])
 checkPattern' _ [] [] pat ret us vs = return (pat, ret, us, vs)
 checkPattern' env ((e, a) : cs) (PatVar x : ps) pat ret us vs =
   checkPattern' env cs ps (pat ++ [PatVar x]) (ret ++ [(x, a)]) (us ++ [(e, VarE x)]) vs
 checkPattern' env ((e, a) : cs) (ValuePat v : ps) pat ret us vs = do
-  v' <- check (addToTEnv env ret) v a
+  v' <- lift $ check (addToTEnv env ret) v a
   checkPattern' env cs ps (pat ++ [ValuePat v']) ret us (vs ++ [(e, v')])
 checkPattern' env ((e, a) : cs) (DataPat c qs : ps) pat ret us vs = do
-  a' <- evalWHNF env a
+  a' <- lift $ evalWHNF env a
   case a' of
     TypeE _ ats ais -> do
-      (tts, xts, b) <- getFromCEnv env c
-      (env', ats') <- checkTelescope env ats tts
+      (tts, xts, b) <- lift $ getFromCEnv env c
+      (env', ats') <- lift $ checkTelescope env ats tts
       let xts' = map (\(s, e) -> (VarE s, e)) xts
       (qs', ret', us', vs') <- checkPattern' env' xts' qs [] ret us vs
       let b' = (substitute ((zip (map fst tts) ats') ++ (zip (map fst xts) (map fst xts'))) b)
       case b' of
         TypeE _ bts bis -> do
-          _ <- checkTelescope env bts tts
+          _ <- lift $ checkTelescope env bts tts
           checkPattern' env cs ps (pat ++ [DataPat c qs']) ret' (us' ++ [(e, DataE c (map fst xts'))] ++ zip ais bis) vs'
-        _ -> throwError (Default "")
-    _ -> throwError (Default "")
-checkPattern' _ _ _ _ _ _ _ = throwError (Default "checkPattern': should not reach here")
+        _ -> throwError (PMError "")
+    _ -> throwError (PMError "")
+checkPattern' _ _ _ _ _ _ _ = lift $ throwError (Default "checkPattern': should not reach here")
 
-unify :: [(Expr, Expr)] -> CheckM [(Name, Expr)]
+unify :: [(Expr, Expr)] -> CheckPatternM [(Name, Expr)]
 unify [] = return []
-unify ((x@(VarE _), y) : _) | x == y = throwError (Default ("unify deletion rule: " ++ show (x, y)))
+unify ((x@(VarE _), y) : _) | x == y = throwError (PMError ("unify deletion rule: " ++ show (x, y)))
 unify ((VarE s@('$' : _), e) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- replace wildcard
 unify ((e, VarE s@('$' : _)) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- replace wildcard
 unify ((VarE s, e) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s e x, substitute1 s e y)) us) -- TODO: cycle check
@@ -370,8 +370,8 @@ unify ((e, VarE s) : us) = ((s, e) :) <$> unify (map (\(x, y) -> (substitute1 s 
 unify ((DataE c1 as1, DataE c2 as2) : us) =
   if c1 == c2
     then unify (zip as1 as2 ++ us)
-    else throwError (Default "cannot unified")
-unify us = throwError (Default ("unify should not reach here:" ++ show us))
+    else throwError (PMError "cannot unified")
+unify us = lift $ throwError (Default ("unify should not reach here:" ++ show us))
 
 -- flexible :: [Pattern] -> Context -> [Name]
 -- flexible [] [] = []
@@ -394,37 +394,25 @@ unify us = throwError (Default ("unify should not reach here:" ++ show us))
 -- isAccecible1 x (DataPat _ ps) = isAccecible x ps
 -- isAccecible1 x (ValuePat _) = False
 
-checkCoverage :: Env -> [TVal] -> [[Pattern]] -> CheckM ()
+checkCoverage :: Env -> [(Expr, TVal)] -> [[Pattern]] -> CheckM ()
 checkCoverage env ts pss = undefined -- checkCoverage' env [(map (\_ -> Wildcard) ts)] ts pss
 
-checkCoverage' :: Env -> [[Pattern]] -> [TVal] -> [[Pattern]] -> CheckM ()
-checkCoverage' _ [] _ _ = return ()
-checkCoverage' env (qs : qss) ts (ps : pss) = do
-  b1 <- matchPattern qs ps
-  if b1
-    then do
-      nss <- getNeighbors env ts ps
-      checkCoverage' env nss ts pss
-    else do
-      b2 <- isAbsurd ts qs
-      if b2
-        then checkCoverage' env qss ts (ps : pss)
-        else throwError (Default "checkCoverage': patterns are not exhaustive")
-checkCoverage' _ _ _ _ = throwError (Default "checkCoverage': should not reach here")
-
-matchPattern :: [Pattern] -> [Pattern] -> CheckM Bool
-matchPattern [] [] = return True
-matchPattern (q : qs) (p : ps) = (&&) <$> matchPattern1 q p <*> matchPattern qs ps
-
-matchPattern1 :: Pattern -> Pattern -> CheckM Bool
-matchPattern1 (DataPat c1 qs) (DataPat c2 ps) =
-  if c1 == c2
-    then matchPattern qs ps
-    else return False
-matchPattern1 q p = return (q == p)
            
-isAbsurd :: [TVal] -> [Pattern] -> CheckM Bool
-isAbsurd _ _ = return True
-           
-getNeighbors :: Env -> [TVal] -> [Pattern] -> CheckM [[Pattern]]
-getNeighbors = undefined
+isAbsurd :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM Bool
+isAbsurd env ts ps = do
+  ret <- runExceptT (checkPattern env ts ps)
+  case ret of
+    Left _ -> return False
+    Right _ -> return True
+
+simplifyPattern :: Pattern -> PPattern
+simplifyPattern (PatVar _) = PWildcard
+simplifyPattern (ValuePat _) = PWildcard
+simplifyPattern (DataPat c ps) = PDataPat c (map simplifyPattern ps)
+               
+makeCaseTree :: Env -> [[Pattern]] -> [[PPattern]]
+makeCaseTree env pss =
+  makeCaseTree' env (map (\ps -> (map simplifyPattern ps)) pss)
+
+makeCaseTree' :: Env -> [[PPattern]] -> [[PPattern]]
+makeCaseTree' = undefined
