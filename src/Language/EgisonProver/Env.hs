@@ -12,6 +12,7 @@ module Language.EgisonProver.Env
        , getFromVEnv
        , getFromTEnv
        , getFromDEnv
+       , getConstructors
        , getFromCEnv
        , addToVEnv
        , addToVEnv1
@@ -80,6 +81,11 @@ getFromDEnv (_, _, denv, _) x = do
   let tms = map (\(s, s') -> (s, VarE s')) (zip (map fst ts) tns)
   let ims = map (\(s, s') -> (s, VarE s')) (zip (map fst is) ins)
   return (zip tns (map (substitute tms) (map snd ts)), zip ins (map (substitute (tms ++ ims)) (map snd is)))
+     
+getConstructors :: Env -> Name -> CheckM ([Name])
+getConstructors (_, _, denv, _) x = do
+  (_, _, ns) <- getFromEnv denv x
+  return ns
      
 getFromCEnv :: Env -> Name -> CheckM (Telescope, Telescope, TVal)
 getFromCEnv (_, _, _, cenv) x = do

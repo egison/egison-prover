@@ -18,12 +18,18 @@ module Language.EgisonProver.AST
        , Indices
        , MName
        , Name
+       , PPatternM (..)
+       , pDataPat
+       , pDataPatM
        , substitute
        , substitute1
        , substituteWithTelescope
        , substitutePat
        , substitutePat1
        ) where
+
+import Control.Egison hiding (Pattern)
+import qualified Control.Egison as Egison
 
 --- Datatypes
 
@@ -80,7 +86,7 @@ data PTopExpr
   | PDefE Name PExpr PExpr -- name, type, expr
   | PDefFunE Name [(MName, PExpr)] PExpr PExpr -- SHOULD DESUGARED: name, types of arguments, type of return value, expr
   | PDefCaseE Name [(MName, PExpr)] PExpr [([PPattern], PExpr)] -- SHOULD DESUGARED: name, types of arguments, type of return value, [(patterns, body)]
- deriving Show
+ deriving (Show, Eq)
 
 data PExpr
   = PVarE Name
@@ -110,6 +116,15 @@ data PPattern
   | PDataPat Name [PPattern]
   | PValuePat PExpr
  deriving (Show, Eq)
+
+data PPatternM = PPatternM
+instance Matcher PPatternM PPattern
+
+pDataPat :: Egison.Pattern (PP Name, PP [PPattern]) PPatternM PPattern (Name, [PPattern])
+pDataPat _ _ (PDataPat n ps) = pure (n, ps)
+
+pDataPatM :: m -> t -> (Eql, List PPatternM)
+pDataPatM _ _ = (Eql, (List PPatternM))
 
 substitute :: [(Name, Expr)] -> Expr -> Expr
 substitute [] e = e

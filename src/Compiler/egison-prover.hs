@@ -31,4 +31,3 @@ main = do
              e' <- checkTopExpr env e
              liftIO (putStrLn ("output: " ++ show e'))) topExprs')
   liftIO (putStrLn ("ret: " ++ show ret))
-

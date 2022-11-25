@@ -5,7 +5,9 @@
 module Language.EgisonProver.Desugar
        (
        -- * Desugar
-         desugarTopExpr
+         desugarTopExpr,
+         desugarExpr,
+         desugarPattern
        ) where
 
 import           Language.EgisonProver.AST

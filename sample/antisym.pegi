@@ -19,3 +19,8 @@
 (define (($antisym ($m : <Nat {} {}>) ($n : <Nat {} {}>) <Lte {} {m n}> <Lte {} {n m}>) : <Eq {<Nat {} {}> m} {n}>)
   {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]
    [[<suc $m'> <suc $n'> <ls #m' #n' $x> <ls #n' #m' $y>] (cong <Nat {} {}> <Nat {} {}> (λ [$k] <suc k>) m' n' (antisym m' n' x y))]})
+
+
+(define (($antisymx ($m : <Nat {} {}>) ($n : <Nat {} {}>) <Lte {} {m n}> <Lte {} {n m}>) : <Eq {<Nat {} {}> m} {n}>)
+  {[[<zero> <zero> <lz #<zero>> <lz #<zero>>] <refl>]})
+   

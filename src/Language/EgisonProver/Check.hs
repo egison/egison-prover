@@ -11,11 +11,16 @@ module Language.EgisonProver.Check
 import Language.EgisonProver.AST
 import Language.EgisonProver.Env
 import Language.EgisonProver.Monad
+import Language.EgisonProver.Desugar
 
 import Control.Exception.Safe hiding (try)
 import Control.Monad.Except
 import Control.Monad.Trans.State.Strict
 
+import Data.List
+
+import Control.Egison hiding (Pattern)
+import qualified Control.Egison as Egison
 
 checkTopExpr :: Env -> TopExpr -> CheckM TopExpr
 checkTopExpr env (DefE n t e) = do
@@ -60,7 +65,7 @@ check env (CaseE ts mcs) a = do
                    b' <- check (addToTEnv env tRet) b (substitute vRet a)
                    return (p', b')
                ) mcs
---  checkCoverage env ts (map fst mcs)
+  checkCoverage env ts (map fst mcs)
   return (CaseE ts mcs')
 check env e a = do
   (b, t) <- infer env e
@@ -358,7 +363,7 @@ checkPattern' env ((e, a) : cs) (DataPat c qs : ps) pat ret us vs = do
           checkPattern' env cs ps (pat ++ [DataPat c qs']) ret' (us' ++ [(e, DataE c (map fst xts'))] ++ zip ais bis) vs'
         _ -> throwError (PMError "")
     _ -> throwError (PMError "")
-checkPattern' _ _ _ _ _ _ _ = lift $ throwError (Default "checkPattern': should not reach here")
+checkPattern' _ cs ps _ _ _ _ = lift $ throwError (Default ("checkPattern': should not reach here: " ++ show (cs, ps)))
 
 unify :: [(Expr, Expr)] -> CheckPatternM [(Name, Expr)]
 unify [] = return []
@@ -394,25 +399,60 @@ unify us = lift $ throwError (Default ("unify should not reach here:" ++ show us
 -- isAccecible1 x (DataPat _ ps) = isAccecible x ps
 -- isAccecible1 x (ValuePat _) = False
 
+
+data CaseTree = CLeaf | CNode [(Name, [CaseTree])]
+  deriving (Show, Eq)
+
+makeCaseTrees :: Env -> [TVal] -> [[PPattern]] -> CheckM [CaseTree]
+makeCaseTrees env ts pss = zipWithM (\t ps -> makeCaseTree env t ps) ts (transpose pss)
+
+makeCaseTree :: Env -> TVal -> [PPattern] -> CheckM CaseTree
+makeCaseTree _ _ [] = return CLeaf
+makeCaseTree _ _ (PWildcard : _) = return CLeaf
+makeCaseTree env (TypeE t ts _) ps@((PDataPat _ _) : _) = do
+  cs <- getConstructors env t
+  CNode <$> mapM (\c -> do
+                    (tts, xts, _) <- getFromCEnv env c
+                    let xts' = map (substitute (zip (map fst tts) ts) . snd) xts
+                    let qss = matchAll dfs ps (List PPatternM)
+                                [[mc| _ ++ (pDataPat #c $qs) : _ -> qs |]]
+                    case qss of
+                      [] -> (c, ) <$> makeCaseTrees env xts' [map (\_ -> PWildcard) xts']
+                      _ -> (c, ) <$> makeCaseTrees env xts' qss
+                     ) cs
+makeCaseTree _ t ps = throwError $ Default ("(t, ps): " ++ show (t, ps))
+
+convertCaseTree :: CaseTree -> [PPattern]
+convertCaseTree CLeaf = [PWildcard]
+convertCaseTree (CNode []) = []
+convertCaseTree (CNode ((n, cs) : ncs)) =
+  let pss = convertCaseTrees cs in
+    map (\ps -> PDataPat n ps) pss ++ convertCaseTree (CNode ncs)
+
+convertCaseTrees :: [CaseTree] -> [[PPattern]]
+convertCaseTrees ts = helper (map convertCaseTree ts)
+ where
+  helper :: [[PPattern]] -> [[PPattern]]
+  helper [] = [[]]
+  helper (ps : pss) =
+    let qss = helper pss in
+      concatMap (\p ->  (map (p :) qss)) ps
+
 checkCoverage :: Env -> [(Expr, TVal)] -> [[Pattern]] -> CheckM ()
-checkCoverage env ts pss = undefined -- checkCoverage' env [(map (\_ -> Wildcard) ts)] ts pss
-
+checkCoverage env ts pss = do
+  let pss' = map (map simplifyPattern) pss
+  ctree <- makeCaseTrees env (map snd ts) pss'
+  let qss = convertCaseTrees ctree
+  let qss' = qss \\ pss'
+  mapM_ (\qs -> do
+            qs' <- mapM desugarPattern qs
+            ret <- runExceptT (checkPattern env ts qs')
+            case ret of
+              Left err -> return ()
+              Right _ -> throwError (Default ("non exhausitive pattern: " ++ show qs))
+            ) qss'
            
-isAbsurd :: Env -> [(Expr, TVal)] -> [Pattern] -> CheckM Bool
-isAbsurd env ts ps = do
-  ret <- runExceptT (checkPattern env ts ps)
-  case ret of
-    Left _ -> return False
-    Right _ -> return True
-
 simplifyPattern :: Pattern -> PPattern
 simplifyPattern (PatVar _) = PWildcard
 simplifyPattern (ValuePat _) = PWildcard
 simplifyPattern (DataPat c ps) = PDataPat c (map simplifyPattern ps)
-               
-makeCaseTree :: Env -> [[Pattern]] -> [[PPattern]]
-makeCaseTree env pss =
-  makeCaseTree' env (map (\ps -> (map simplifyPattern ps)) pss)
-
-makeCaseTree' :: Env -> [[PPattern]] -> [[PPattern]]
-makeCaseTree' = undefined
