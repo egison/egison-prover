@@ -7,19 +7,19 @@ module Language.EgisonProver.Monad
        -- * AST
          CheckM
        , CheckPatternM
-       , ProverError (..)
-       , PMError (..)
        , MonadRuntime (..)
        , runCheckM
        , runCheckM_
        , runCheckPatternM
+       , ProverError (..)
+       , PMError (..)
        ) where
-
-import Language.EgisonProver.AST
 
 import Control.Exception.Safe hiding (try)
 import Control.Monad.Except
 import Control.Monad.Trans.State.Strict
+
+import Language.EgisonProver.AST
 
 data ProverError
   = Default String
@@ -39,9 +39,9 @@ instance Show ProverError where
   show UnunifiablePattern = "Type error: " ++ "ununifiable pattern"
   show (Parser msg) = "Parse error: " ++ msg
 
-instance Exception ProverError
-
 data PMError = PMError String
+
+instance Exception ProverError
 
 data RState = RState
   { indexCounter :: Int

@@ -80,7 +80,7 @@ checkTelescope env (x : xs) ((n, xt) : xts) = do
   return (env', x' : xs')
 checkTelescope _ _ _ = throwError (Default "checkTelescope: should not reach here")
 
-infer :: Env -> Expr -> CheckM (Expr, Expr)
+infer :: Env -> Expr -> CheckM (TVal, Expr)
 infer env e@(VarE x) = do
   a <- getFromTEnv env x
   return (a, e)

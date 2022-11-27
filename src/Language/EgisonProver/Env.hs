@@ -68,10 +68,12 @@ getFromEnv' env x =
      [mc| _ -> Nothing |]]
 
 getFromVEnv :: Env -> Name -> CheckM (Maybe Expr)
-getFromVEnv (venv, _, _, _) x = return (getFromEnv' venv x) -- TODO: alpha conversion
+getFromVEnv (venv, _, _, _) x = case getFromEnv' venv x of
+  Nothing -> return Nothing
+  (Just e) -> Just <$> alphaConvertion e
      
 getFromTEnv :: Env -> Name -> CheckM TVal
-getFromTEnv (_, tenv, _, _) x = getFromEnv tenv x
+getFromTEnv (_, tenv, _, _) x = getFromEnv tenv x >>= alphaConvertion
      
 getFromDEnv :: Env -> Name -> CheckM (Telescope, Indices)
 getFromDEnv (_, _, denv, _) x = do
@@ -107,3 +109,26 @@ addToTEnv1 (venv, tenv, denv, cenv) x a = (venv, tenv ++ [(x, a)], denv, cenv)
                              
 addToTEnv :: Env -> Context -> Env
 addToTEnv (venv, tenv, denv, cenv) cs = (venv, tenv ++ cs, denv, cenv)
+
+alphaConvertion :: Expr -> CheckM Expr
+alphaConvertion (PiE x e1 e2) = do
+  x' <- addFresh x
+  PiE x' <$> alphaConvertion (substitute1 x (VarE x') e1) <*> alphaConvertion (substitute1 x (VarE x') e2)
+alphaConvertion (LambdaMultiE xs e) = do
+  xs' <- mapM addFresh xs
+  LambdaMultiE xs' <$> alphaConvertion (substitute (zip xs (map VarE xs')) e)
+alphaConvertion (LambdaE x e) = do
+  x' <- addFresh x
+  LambdaE x' <$> alphaConvertion (substitute1 x (VarE x') e)
+alphaConvertion (SigmaE x e1 e2) = do
+  x' <- addFresh x
+  SigmaE x' <$> alphaConvertion (substitute1 x (VarE x') e1) <*> alphaConvertion (substitute1 x (VarE x') e2)
+--alphaConvertion (CaseE ts mcs) = undefined -- TODO
+alphaConvertion (ApplyMultiE e es) = ApplyMultiE <$> alphaConvertion e <*> mapM alphaConvertion es
+alphaConvertion (ApplyE e1 e2) = ApplyE <$> alphaConvertion e1 <*> alphaConvertion e2
+alphaConvertion (PairE e1 e2) = PairE <$> alphaConvertion e1 <*> alphaConvertion e2
+alphaConvertion (Proj1E e1) = Proj1E <$> alphaConvertion e1
+alphaConvertion (Proj2E e1) = Proj2E <$> alphaConvertion e1
+alphaConvertion (TypeE n ts is) = TypeE n <$> (mapM alphaConvertion ts) <*> (mapM alphaConvertion is)
+alphaConvertion (DataE n xs) = DataE n <$> (mapM alphaConvertion xs)
+alphaConvertion e = return e

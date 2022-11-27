@@ -1,0 +1,43 @@
+(data $Nat {} {}
+  {[$zero : <Nat {} {}>]
+   [$suc (<Nat {} {}>) : <Nat {} {}>]})
+
+(data $Eq {($A : (Universe 0)) ($x : A)} {A}
+  {[$refl : <Eq {A x} {x}>]})
+
+(define (($symm ($A : (Universe 0)) ($x : A) ($y : A) (_ : <Eq {A x} {y}>)) : <Eq {A y} {x}>)
+  {[[_ _ _ <refl>] <refl>]})
+
+(define (($trans ($A : (Universe 0)) ($x : A) ($y : A) ($z : A) (_ : <Eq {A x} {y}>) (_ : <Eq {A y} {z}>)) : <Eq {A x} {z}>)
+  {[[_ _ _ _ <refl> <refl>] <refl>]})
+
+(define (($cong ($A : (Universe 0)) ($B : (Universe 0)) ($f : A → B) ($x : A) ($y : A) (<Eq {A x} {y}>)) : <Eq {B (f x)} {(f y)}>)
+  {[[_ _ _ _ _ <refl>] <refl>]})
+
+(define (($subst ($A : (Universe 0)) ($P : A → (Universe 0)) ($x : A) ($y : A) (_ : <Eq {A x} {y}>) (_ : (P x))) : (P y))
+  {[[_ _ _ _ <refl> $p] p]})
+
+(define (($plus ($x : <Nat {} {}>) ($y : <Nat {} {}>)) : <Nat {} {}>)
+  {[[<zero> $n] n]
+   [[<suc $m> $n] <suc (plus m n)>]})
+
+(define (($plusZero ($x : <Nat {} {}>)) : <Eq {<Nat {} {}> (plus x <zero>)} {x}>)
+  {[[<zero>] <refl>]
+   [[<suc $x'>] (cong <Nat {} {}> <Nat {} {}> (λ [$k] <suc k>) (plus x' <zero>) x' (plusZero x'))]})
+
+(define (($plusSuc ($x : <Nat {} {}>) ($y : <Nat {} {}>)) : <Eq {<Nat {} {}> (plus x <suc y>)} {<suc (plus x y)>}>)
+  {[[<zero> _] <refl>]
+   [[<suc $x'> _] (cong <Nat {} {}> <Nat {} {}> (λ [$k] <suc k>)  (plus x' <suc y>) <suc (plus x' y)> (plusSuc x' y))]})
+
+(define (($comm ($x : <Nat {} {}>) ($y : <Nat {} {}>)) : <Eq {<Nat {} {}> (plus x y)} {(plus y x)}>)
+  {[[<zero> _] (symm <Nat {} {}> (plus y <zero>) y (plusZero y))]
+   [[<suc $x'> _]
+    (subst <Nat {} {}>
+           (λ [$k] <Eq {<Nat {} {}> <suc (plus x' y)>} {k}>)
+           <suc (plus y x')>
+           (plus y <suc x'>)
+           (symm <Nat {} {}> (plus y <suc x'>) <suc (plus y x')> (plusSuc y x'))
+           (cong <Nat {} {}> <Nat {} {}> (λ [$k] <suc k>) (plus x' y) (plus y x') (comm x' y)))]})
+
+   
+
