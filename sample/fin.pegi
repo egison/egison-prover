@@ -1,0 +1,24 @@
+(data $Nat {} {}
+  {[$zero : <Nat {} {}>]
+   [$suc (<Nat {} {}>) : <Nat {} {}>]})
+
+(data $Fin {} {($n : <Nat {} {}>)}
+  {[$fzero ($n : <Nat {} {}>) : <Fin {} {<suc n>}>]
+   [$fsuc  ($n : <Nat {} {}>) <Fin {} {n}> : <Fin {} {<suc n>}>]})
+
+(data $Eq {($A : (Universe 0)) ($x : A)} {A}
+  {[$refl : <Eq {A x} {x}>]})
+
+(data $FLte {} {($n : <Nat {} {}>) (<Fin {} {n}>) (<Fin {} {n}>)}
+  {[$flz ($n : <Nat {} {}>) ($y : <Fin {} {n}>) : <FLte {} {n <fzero n> y}>]
+   [$fls ($n : <Nat {} {}>) ($x : <Fin {} {n}>) ($y : <Fin {} {n}>) <FLte {} {n x y}> : <Lte {} {<suc n> <suc x> <suc y>}>]})
+
+(define (($trans ($n : <Nat {} {}>) ($x : <Fin {} {n}>) ($y : <Fin {} {n}>) ($z : <Fin {} {n}>)  <FLte {} {n x y}> <FLte {} {n y z}>) : <FLte {} {n x z}>)
+  {[[<suc $n'> <fzero #n'> <fzero #n'> <fzero #n'> <flz #n _> <flz #n _>] undefined]
+;  {[[<suc $n'> <fzero #n'> <fzero #n'> <fzero #n'> <flz #n' #<fzero n'>> <flz #n' #<fzero n'>>] <flz n' <fzero n'>>]
+;   [[<suc $n'> <fzero #n'> <fzero #n'> <fsuc #n' $z'> <flz #n' #<fzero n'>> <flz #n' #z'>] undefined]
+   })
+   
+(define (($antisym ($n : <Nat {} {}>) ($x : <Fin {} {n}>) ($y : <Fin {} {n}>)  <FLte {} {n x y}> <FLte {} {n y x}>) : <Eq {<Fin {} {n}> x} {y}>)
+  undefined)
+   

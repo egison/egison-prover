@@ -38,6 +38,3 @@
            (plus y <suc x'>)
            (symm <Nat {} {}> (plus y <suc x'>) <suc (plus y x')> (plusSuc y x'))
            (cong <Nat {} {}> <Nat {} {}> (λ [$k] <suc k>) (plus x' y) (plus y x') (comm x' y)))]})
-
-   
-

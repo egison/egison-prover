@@ -160,7 +160,8 @@ expr = try arrowExpr
    <|> try expr'
 
 expr' :: Parser PExpr
-expr' = try varExpr
+expr' = try undefinedExpr
+    <|> try varExpr
     <|> try dataExpr
     <|> try typeExpr
     <|> try universeExpr
@@ -174,6 +175,11 @@ arrowExpr = do
   char '→' >> whiteSpace
   e2 <- expr'
   return (PArrowE e1 e2)
+
+undefinedExpr :: Parser PExpr
+undefinedExpr = do
+  keywordUndefined
+  return PUndefinedE
 
 varExpr :: Parser PExpr
 varExpr = do
@@ -296,5 +302,6 @@ reservedOp = P.reservedOp lexer
 
 keywordData                 = reserved "data"
 keywordDefine               = reserved "define"
+keywordUndefined            = reserved "undefined"
 keywordUniverse             = reserved "Universe"
 

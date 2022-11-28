@@ -29,6 +29,7 @@ checkTopExpr env (DefE n t e) = do
 checkTopExpr _ e = return e
 
 check :: Env -> Expr -> Expr -> CheckM Expr
+check _ UndefinedE _ = return UndefinedE
 check env (LambdaMultiE xs e) a = check env (foldr (\x e' -> LambdaE x e') e xs) a
 check env (LambdaE x e) a = do
   a' <- evalWHNF env a
@@ -62,6 +63,7 @@ check env e@(DataE c xs) a = do
 check env (CaseE ts mcs) a = do
   mcs' <- mapM (\(p, b) -> do
                    (p', tRet, vRet) <- runCheckPatternM (checkPattern env ts p)
+                   liftIO $ putStrLn $ "pm ret: " ++ show (p', tRet, vRet)
                    b' <- check (addToTEnv env tRet) b (substitute vRet a)
                    return (p', b')
                ) mcs
@@ -337,7 +339,7 @@ checkPattern env cs ps = do
   mapM_ (\(x, y) ->
            if x == y
              then return ()
-             else lift $ throwError (Default "value pattern cannot unified"))
+             else lift $ throwError (Default ("value pattern cannot unified: " ++ show (x, y))))
     (map (\(x, y) -> (substitute vRet x, substitute vRet y)) vs)
   return (ps', map (\(s, t) -> (s, substitute vRet t)) tRet, vRet)
 

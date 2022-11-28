@@ -63,6 +63,7 @@ desugarExpr (PUniverseE n) = return (UniverseE n)
 desugarExpr PUniverseAlphaE = return UniverseAlphaE
 desugarExpr PUnitTypeE = return UnitTypeE
 desugarExpr PUnitE = return UnitE
+desugarExpr PUndefinedE = return UndefinedE
 
 desugarPattern :: PPattern -> CheckM Pattern
 desugarPattern PWildcard = PatVar <$> fresh
