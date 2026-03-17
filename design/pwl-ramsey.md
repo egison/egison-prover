@@ -137,10 +137,7 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
   -- ★ 外側のパターンマッチ: edge から同色 3 辺を取り出す
   match edge as multiset (Sym2 (Fin 6) -> Color)
     with
-  | ($v, $x) -> $c
-    :: (#v, $y) -> #c
-    :: (#v, $z) -> #c
-    :: _ =>
+  | ($v, $x) -> $c :: (#v, $y) -> #c :: (#v, $z) -> #c :: _ =>
 
     -- ★ 内側のパターンマッチ: 残り 3 辺の色で場合分け
     --
@@ -150,13 +147,13 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
     -- 例: 最初のケースでは v-x, v-y, x-y
     --   の各制約（同色性）が充足されることが自動で導かれる。
     match edge as multiset (Sym2 (Fin 6) -> Color)
-    | (#x, #y) -> #c ⇒ hxy_c =>
+    | (#x, #y) -> #c =>
         exact ⟨v, x, c, y⟩
 
-    | (#y, #z) -> #c ⇒ hyz_c =>
+    | (#y, #z) -> #c =>
         exact ⟨v, y, c, z⟩
 
-    | (#x, #z) -> #c ⇒ hxz_c =>
+    | (#x, #z) -> #c =>
         exact ⟨v, x, c, z⟩
 
     | (#x, #y) -> $c' :: (#y, #z) -> #c' :: (#x, #z) -> #c' :: _ =>
