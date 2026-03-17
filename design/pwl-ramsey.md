@@ -26,13 +26,13 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
 inductive Color | red | blue
 
 theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
-    matches ($x, $y) -> $c :: (#y, $z) -> #c :: (#z, #x) -> #c :: _
-    as multiset (Sym2 (Fin 6) -> Color)
+    matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
+    as multiset (Sym2 (Fin 6) → Color)
 ```
 
 `matches` は「任意の `edge` に対してこのパターンが必ずマッチする」という主張であり、
 定理の証明はこのパターンの網羅性を示すことに対応する。
-`as multiset (Sym2 (Fin 6) -> Color)` により、関数 `edge` を入出力ペアの multiset として扱う。
+`as multiset (Sym2 (Fin 6) → Color)` により、関数 `edge` を入出力ペアの multiset として扱う。
 `Sym2 (Fin 6)` は順序なしペアなので、`($x, $y)` は順序を問わずマッチする。
 
 この記法により以下が吸収される：
@@ -41,7 +41,7 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 - **`∃ c`**: パターン変数 `$c` と非線形パターン `#c` に吸収
 
 さらに、各パターン変数が満たすべき関係もパターンの構造から自動的に導かれる。
-具体的には、`($x, $y) -> $c :: (#y, $z) -> #c :: (#z, #x) -> #c :: _` というパターンから：
+具体的には、`($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _` というパターンから：
 - **相異性**: `$x`, `$y`, `$z` は `Sym2 (Fin 6)` の異なる辺を構成するため、互いに異なる値でなければならない（`x ≠ y`, `y ≠ z`, `z ≠ x`）。`Sym2` は自己ループ `⟦(v, v)⟧` を持たないため、各辺の両端が異なることも保証される。
 - **三角形の構成**: 3つの辺 `⟦(x,y)⟧`, `⟦(y,z)⟧`, `⟦(z,x)⟧` が三角形を形成すること。
 - **単色性**: 非線形パターン変数 `#c` により、3辺すべてが同じ色 `c` であること。
@@ -106,8 +106,8 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
 -- 鳩の巣原理: v からの 5 辺を 2 色で塗ると、同色 3 辺以上が存在する
 -- 主定理の外側マッチのワイルドカード節の背理法に使用
 lemma pigeonhole_edges (edge : Sym2 (Fin 6) → Color)
-    matches ($v, $x) -> $c :: (#v, $y) -> #c :: (#v, $z) -> #c :: _
-    as multiset (Sym2 (Fin 6) -> Color) := by
+    matches ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _
+    as multiset (Sym2 (Fin 6) → Color) := by
   -- v の次数は 5（K₆ で自己ループなし）
   -- 5 辺を 2 色に分けるので、鳩の巣原理から ⌈5/2⌉ = 3
   ...
@@ -134,51 +134,37 @@ Color は代数的データ型なので `as` は不要。
 
 ```egison
 theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
-    matches ($x, $y) -> $c :: (#y, $z) -> #c :: (#z, #x) -> #c :: _
-    as multiset (Sym2 (Fin 6) -> Color) := by
+    matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
+    as multiset (Sym2 (Fin 6) → Color) := by
 
   -- ★ 外側のパターンマッチ: edge から同色 3 辺を取り出す
-  match edge as multiset (Sym2 (Fin 6) -> Color)
-    with
-  | ($v, $x) -> $c :: (#v, $y) -> #c :: (#v, $z) -> #c :: _ =>
-
-    -- このパターンにマッチしたことから、以下の関係が自動的に導かれる：
-    --   (1) v ≠ x, v ≠ y, v ≠ z（Sym2 は自己ループを持たないため）
-    --   (2) x ≠ y, x ≠ z, y ≠ z（multiset から :: で取り出した要素は互いに異なるため）
-    --   (3) edge ⟦(v,x)⟧ = c, edge ⟦(v,y)⟧ = c, edge ⟦(v,z)⟧ = c
-    --       （非線形パターン #v, #c によるマッチから）
-    -- Lean 4 版では (1)(2) を Finset.mem_filter や hxy, hxz, hyz として明示的に保持し、
-    -- (3) を have edge_vx, edge_vy, edge_vz として個別に証明する必要がある。
-    -- パターンマッチ指向版では、これらすべてがマッチの成立から自動的に得られる。
+  match edge as multiset (Sym2 (Fin 6) → Color) with
+  | ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ =>
 
     -- ★ 内側のパターンマッチ: 残り 3 辺の色で場合分け
-    --
-    -- 各ケースでは、パターンマッチで束縛された値を返すだけでよい。
-    -- 返された束縛が定理の matches パターンを満たすことは、
-    -- 外側・内側のマッチで得られる証明項から自動的に補完される。
-    -- 例: 最初のケースでは v-x, v-y, x-y
-    --   の各制約（同色性）が充足されることが自動で導かれる。
-    match edge as multiset (Sym2 (Fin 6) -> Color)
-    | (#x, #y) -> #c => exact ⟨v, x, c, y⟩
-    | (#y, #z) -> #c => exact ⟨v, y, c, z⟩
-    | (#x, #z) -> #c => exact ⟨v, x, c, z⟩
-    | (#x, #y) -> $c' :: (#y, #z) -> #c' :: (#x, #z) -> #c' :: _ =>
+    match edge as multiset (Sym2 (Fin 6) → Color) with
+    | (#x, #y) → #c => exact ⟨v, x, c, y⟩
+    | (#y, #z) → #c => exact ⟨v, y, c, z⟩
+    | (#x, #z) → #c => exact ⟨v, x, c, z⟩
+    | (#x, #y) → $c' :: (#y, #z) → #c' :: (#x, #z) → #c' :: _ =>
         exact ⟨x, y, c', z⟩
-    | _ => by
-        -- 網羅性: 上の 4 ケースにマッチしないと仮定して背理法。
-        -- two_color_exhaustive により 4 ケースは全可能性を尽くすので矛盾。
-        exfalso
-        have h := two_color_exhaustive c (edge ⟦(x,y)⟧) (edge ⟦(y,z)⟧) (edge ⟦(x,z)⟧)
-        simp_all
-  | _ => by
-      -- 網羅性: 同色 3 辺が取り出せないと仮定して背理法。
-      -- 鳩の巣原理（色を存在量化で受ける。ここは Lean 4 版と同じ）
-      have h_pigeonhole := pigeonhole_edges edge
-      obtain ⟨c, hc⟩ := h_pigeonhole
-      -- hc より同色 3 辺が存在するので矛盾。
-      exfalso
-      exact absurd hc (by omega)
+    exhaustive by two_color_exhaustive c (edge ⟦(x,y)⟧) (edge ⟦(y,z)⟧) (edge ⟦(x,z)⟧)
+  exhaustive by pigeonhole_edges edge
 ```
+
+#### 外側のパターンマッチで自動的に導かれる関係
+
+外側のパターン `($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _` にマッチしたことから、以下の関係が自動的に導かれる：
+
+1. **頂点の相異性（Sym2 の性質から）**: `v ≠ x`, `v ≠ y`, `v ≠ z` — `Sym2` は自己ループを持たないため、各辺の両端は異なる。
+2. **辺の相異性（multiset の `::` から）**: `x ≠ y`, `x ≠ z`, `y ≠ z` — multiset から `::` で取り出した要素は互いに異なるため。
+3. **同色性（非線形パターンから）**: `edge ⟦(v,x)⟧ = c`, `edge ⟦(v,y)⟧ = c`, `edge ⟦(v,z)⟧ = c` — 非線形パターン `#v`, `#c` によるマッチから。
+
+Lean 4 版では (1)(2) を `Finset.mem_filter` や `hxy`, `hxz`, `hyz` として明示的に保持し、(3) を `have edge_vx`, `edge_vy`, `edge_vz` として個別に証明する必要がある。パターンマッチ指向版では、これらすべてがマッチの成立から自動的に得られる。
+
+#### 内側のパターンマッチでの証明の自動補完
+
+内側のパターンマッチ（残り 3 辺の色での場合分け）では、各ケースでパターンマッチで束縛された値を返すだけでよい。返された束縛が定理の `matches` パターンを満たすことは、外側・内側のマッチで得られる証明項から自動的に補完される。例えば、最初のケース `(#x, #y) → #c` では、`v`-`x`, `v`-`y`, `x`-`y` の各制約（同色性）が充足されることが自動で導かれる。
 
 ---
 
@@ -188,13 +174,13 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 
 | | Lean 4 | パターンマッチ指向 |
 |---|---|---|
-| 定理の主張 | `∃ (x y z), monochromatic edge x y z` | `matches ($x, $y) -> $c :: ...` |
+| 定理の主張 | `∃ (x y z), monochromatic edge x y z` | `matches ($x, $y) → $c :: ...` |
 | 補助定義 | `monochromatic` が必要 | 不要（パターンが定義） |
 | 存在量化 | 明示的に `∃` | パターン変数に吸収 |
-| 行数（証明本体） | 約35行 | 約30行 |
+| 行数（証明本体） | 約35行 | 約13行 |
 | 補助補題 | なし | 2つ（鳩の巣原理、2色網羅性） |
 | `obtain`（3頂点の取り出し） | 1箇所 | 0箇所（multiset `::` に吸収） |
-| `have`（辺の色の証明） | 3箇所 | 0箇所（`⇒` に吸収） |
+| `have`（辺の色の証明） | 3箇所 | 0箇所（`→` に吸収） |
 | 辺の色の場合分け | `rcases` フラット4ケース | `match` フラット4ケース |
 | 反対色の導出 | `cases ... <;> simp_all` 3箇所 | multiset マッチで自動 |
 | マッチャー正当性の証明 | 不要（標準パターンマッチのみ） | 1箇所（`with` で multiset マッチャー） |
@@ -205,7 +191,7 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 Lean 4 版は `rcases` が構造的に網羅的なので補助補題が不要だが、
 証明本体がやや長い（約35行）。さらに `monochromatic` の定義が別途必要。
 
-パターンマッチ指向版は `monochromatic` の定義が不要で証明本体も短い（約30行）が、
+パターンマッチ指向版は `monochromatic` の定義が不要で証明本体も短い（約13行）が、
 網羅性の背理法証明のために補助補題 `two_color_exhaustive` が必要。
 ただしこれは `decide` で閉じる1行の補題である。
 `pigeonhole_edges` は Lean 4 版でも `h_pigeonhole` として
