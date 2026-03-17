@@ -40,6 +40,14 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 - **`∃ (x y z : Fin 6)`**: パターン変数 `$x, $y, $z` に吸収
 - **`∃ c`**: パターン変数 `$c` と非線形パターン `#c` に吸収
 
+さらに、各パターン変数が満たすべき関係もパターンの構造から自動的に導かれる。
+具体的には、`($x, $y) -> $c :: (#y, $z) -> #c :: (#z, #x) -> #c :: _` というパターンから：
+- **相異性**: `$x`, `$y`, `$z` は `Sym2 (Fin 6)` の異なる辺を構成するため、互いに異なる値でなければならない（`x ≠ y`, `y ≠ z`, `z ≠ x`）。`Sym2` は自己ループ `⟦(v, v)⟧` を持たないため、各辺の両端が異なることも保証される。
+- **三角形の構成**: 3つの辺 `⟦(x,y)⟧`, `⟦(y,z)⟧`, `⟦(z,x)⟧` が三角形を形成すること。
+- **単色性**: 非線形パターン変数 `#c` により、3辺すべてが同じ色 `c` であること。
+
+Lean 4 版では `monochromatic` の定義内でこれらの関係を明示的に記述する必要があるが、パターンマッチ指向版ではパターンの構文そのものがこれらの制約を暗黙に表現している。
+
 ---
 
 ## A. Lean 4 / Mathlib スタイル
@@ -74,23 +82,18 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
     exact (Finset.mem_filter.mp hy).2.2
   have edge_vz : edge ⟦(v, z)⟧ = c := by
     exact (Finset.mem_filter.mp hz).2.2
-  -- x-y の色で場合分け
-  by_cases hxy_color : edge ⟦(x, y)⟧ = c
-  · exact ⟨v, x, y, ⟨c, edge_vx, hxy_color, edge_vy⟩⟩
-  · -- y-z の色で場合分け
-    by_cases hyz_color : edge ⟦(y, z)⟧ = c
-    · exact ⟨v, y, z, ⟨c, edge_vy, hyz_color, edge_vz⟩⟩
-    · -- x-z の色で場合分け
-      by_cases hxz_color : edge ⟦(x, z)⟧ = c
-      · exact ⟨v, x, z, ⟨c, edge_vx, hxz_color, edge_vz⟩⟩
-      · -- 全て c でない → 反対色を導出
-        have hxy_c' : edge ⟦(x, y)⟧ = opposite c := by
-          cases edge ⟦(x, y)⟧ <;> cases c <;> simp_all
-        have hyz_c' : edge ⟦(y, z)⟧ = opposite c := by
-          cases edge ⟦(y, z)⟧ <;> cases c <;> simp_all
-        have hxz_c' : edge ⟦(x, z)⟧ = opposite c := by
-          cases edge ⟦(x, z)⟧ <;> cases c <;> simp_all
-        exact ⟨x, y, z, ⟨opposite c, hxy_c', hyz_c', hxz_c'⟩⟩
+  -- x-y, y-z, x-z の色で場合分け（3辺の色をフラットに分岐）
+  rcases Decidable.em (edge ⟦(x, y)⟧ = c) with hxy | hxy
+  · exact ⟨v, x, y, ⟨c, edge_vx, hxy, edge_vy⟩⟩
+  rcases Decidable.em (edge ⟦(y, z)⟧ = c) with hyz | hyz
+  · exact ⟨v, y, z, ⟨c, edge_vy, hyz, edge_vz⟩⟩
+  rcases Decidable.em (edge ⟦(x, z)⟧ = c) with hxz | hxz
+  · exact ⟨v, x, z, ⟨c, edge_vx, hxz, edge_vz⟩⟩
+  -- 全て c でない → 反対色の三角形
+  exact ⟨x, y, z, ⟨opposite c,
+    by cases edge ⟦(x, y)⟧ <;> cases c <;> simp_all,
+    by cases edge ⟦(y, z)⟧ <;> cases c <;> simp_all,
+    by cases edge ⟦(x, z)⟧ <;> cases c <;> simp_all⟩⟩
 ```
 
 ---
@@ -138,6 +141,15 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
   match edge as multiset (Sym2 (Fin 6) -> Color)
     with
   | ($v, $x) -> $c :: (#v, $y) -> #c :: (#v, $z) -> #c :: _ =>
+
+    -- このパターンにマッチしたことから、以下の関係が自動的に導かれる：
+    --   (1) v ≠ x, v ≠ y, v ≠ z（Sym2 は自己ループを持たないため）
+    --   (2) x ≠ y, x ≠ z, y ≠ z（multiset から :: で取り出した要素は互いに異なるため）
+    --   (3) edge ⟦(v,x)⟧ = c, edge ⟦(v,y)⟧ = c, edge ⟦(v,z)⟧ = c
+    --       （非線形パターン #v, #c によるマッチから）
+    -- Lean 4 版では (1)(2) を Finset.mem_filter や hxy, hxz, hyz として明示的に保持し、
+    -- (3) を have edge_vx, edge_vy, edge_vz として個別に証明する必要がある。
+    -- パターンマッチ指向版では、これらすべてがマッチの成立から自動的に得られる。
 
     -- ★ 内側のパターンマッチ: 残り 3 辺の色で場合分け
     --
@@ -187,23 +199,38 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 | 定理の主張 | `∃ (x y z), monochromatic edge x y z` | `matches ($x, $y) -> $c :: ...` |
 | 補助定義 | `monochromatic` が必要 | 不要（パターンが定義） |
 | 存在量化 | 明示的に `∃` | パターン変数に吸収 |
-| 行数（証明本体） | 約40行 | 約30行 |
+| 行数（証明本体） | 約35行 | 約30行 |
 | 補助補題 | なし | 2つ（鳩の巣原理、2色網羅性） |
 | `obtain`（3頂点の取り出し） | 1箇所 | 0箇所（multiset `::` に吸収） |
 | `have`（辺の色の証明） | 3箇所 | 0箇所（`⇒` に吸収） |
-| 辺の色の場合分け | `by_cases` 3段入れ子 | フラット4ケース |
-| 反対色の導出 | `have` 3箇所 + `cases ... <;> simp_all` | multiset マッチで自動 |
+| 辺の色の場合分け | `rcases` フラット4ケース | `match` フラット4ケース |
+| 反対色の導出 | `cases ... <;> simp_all` 3箇所 | multiset マッチで自動 |
 | マッチャー正当性の証明 | 不要（標準パターンマッチのみ） | 1箇所（`with` で multiset マッチャー） |
-| 網羅性の証明 | 不要（`by_cases` は構造的に網羅的） | 2箇所（ワイルドカード節で背理法） |
+| 網羅性の証明 | 不要（`rcases` は構造的に網羅的） | 2箇所（ワイルドカード節で背理法） |
 
 ### 補助補題を含めた総量
 
-Lean 4 版は `by_cases` が構造的に網羅的なので補助補題が不要だが、
-証明本体が長い（約40行）。さらに `monochromatic` の定義が別途必要。
+Lean 4 版は `rcases` が構造的に網羅的なので補助補題が不要だが、
+証明本体がやや長い（約35行）。さらに `monochromatic` の定義が別途必要。
 
 パターンマッチ指向版は `monochromatic` の定義が不要で証明本体も短い（約30行）が、
 網羅性の背理法証明のために補助補題 `two_color_exhaustive` が必要。
 ただしこれは `decide` で閉じる1行の補題である。
 `pigeonhole_edges` は Lean 4 版でも `h_pigeonhole` として
 実質同じ内容を証明している（形式が異なるだけ）。
+
+### 場合分けの構造の比較
+
+Lean 4 版では `rcases Decidable.em` を連鎖させることで場合分けをフラットに記述できる。
+各 `rcases` の正のケース（`= c`）で即座にゴールを閉じ、
+負のケースのみが次の `rcases` に進むため、構造的には4つのフラットなケースとなる。
+
+パターンマッチ指向版も `match` の4ケースでフラットに記述される。
+両者のケース数と構造は同等だが、以下の点が異なる：
+
+- **Lean 4 版**: 各ケースで `edge_vx`, `hxy` 等の証明項を明示的に `exact` に渡す必要がある。
+  反対色ケースでは `cases ... <;> simp_all` による Color 全数検査が3箇所必要。
+- **パターンマッチ指向版**: 各ケースでは束縛変数を返すだけでよい。
+  非線形パターン `#c` によるマッチから同色性の証明が自動的に得られるため、
+  明示的な証明項の構築が不要。反対色ケースも multiset マッチで自動的に処理される。
 
