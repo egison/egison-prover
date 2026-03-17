@@ -159,25 +159,17 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
     -- 例: 最初のケースでは v-x, v-y, x-y
     --   の各制約（同色性）が充足されることが自動で導かれる。
     match edge as multiset (Sym2 (Fin 6) -> Color)
-    | (#x, #y) -> #c =>
-        exact ⟨v, x, c, y⟩
-
-    | (#y, #z) -> #c =>
-        exact ⟨v, y, c, z⟩
-
-    | (#x, #z) -> #c =>
-        exact ⟨v, x, c, z⟩
-
+    | (#x, #y) -> #c => exact ⟨v, x, c, y⟩
+    | (#y, #z) -> #c => exact ⟨v, y, c, z⟩
+    | (#x, #z) -> #c => exact ⟨v, x, c, z⟩
     | (#x, #y) -> $c' :: (#y, #z) -> #c' :: (#x, #z) -> #c' :: _ =>
         exact ⟨x, y, c', z⟩
-
     | _ => by
         -- 網羅性: 上の 4 ケースにマッチしないと仮定して背理法。
         -- two_color_exhaustive により 4 ケースは全可能性を尽くすので矛盾。
         exfalso
         have h := two_color_exhaustive c (edge ⟦(x,y)⟧) (edge ⟦(y,z)⟧) (edge ⟦(x,z)⟧)
         simp_all
-
   | _ => by
       -- 網羅性: 同色 3 辺が取り出せないと仮定して背理法。
       -- 鳩の巣原理（色を存在量化で受ける。ここは Lean 4 版と同じ）
