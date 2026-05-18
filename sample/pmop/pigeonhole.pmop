@@ -1,0 +1,93 @@
+-- pigeonhole.pmop
+-- 一般形の鳩の巣原理を pattern-match-oriented proof で書く。
+-- prelude.pmop の multiset matcher / Fin n / decidable_eq (Fin n) を前提。
+--
+-- 主張: f : Fin (suc n) → Fin n は必ず衝突を持つ。
+--       すなわち、定義域に異なる 2 点 x ≠ z があって f x = f z。
+--
+-- パターンマッチ指向での表現:
+--   関数 f を multiset (Fin (suc n) → Fin n) として見たとき、
+--   (入力, 出力) の組のうち、出力が同じ 2 組を取り出せる。
+--   ($x → $y) :: (#? → #y) :: _ — 入力位置は any、出力は同じ #y。
+--   multiset の :: 規則から $x と「次の :: で取り出した要素の入力」は別物。
+--
+-- Lean 4 でこの一般形を素直に書くと Fintype + Finset.card 不等式 + by_contra
+-- + omega が要るが、pattern-match-oriented では multiset の cons の意味
+-- そのものが「異なる要素」「カウント保存」を担うので主張がそのまま証明になる。
+
+import prelude
+
+-- ---------------------------------------------------------------
+-- 主定理
+-- ---------------------------------------------------------------
+
+theorem pigeonhole (n : Nat) (f : Fin (suc n) → Fin n)
+    matches ($x → $y) :: ($z → #y) :: _
+    as multiset (Fin (suc n) → Fin n)
+
+-- ---------------------------------------------------------------
+-- 証明
+-- ---------------------------------------------------------------
+-- 証明は次の補題で閉じる: 「定義域カーディナリティ |Fin (suc n)| = n+1 が
+-- 値域カーディナリティ |Fin n| = n より厳密に大きい」ので multiset として
+-- 見たときに鳩の巣のパターンが必ずある。
+--
+-- 帰納的にやるならカード比較を持ち出さず、関数 multiset の構造分解で書く:
+
+  := by
+  -- target を関数 multiset としてばらす。
+  -- すべての要素を取り出し切るまで $y を順に観察する。
+  -- 「すでに観察した出力に被ったら成功、被らなかったら _ パターンが
+  --  まだ要素 (n+1 個) を残しているのに値域は n しか無いことから矛盾」
+  -- という構造を素直に書くと:
+  match f as multiset (Fin (suc n) → Fin n) with
+  | ($x → $y) :: ($z → #y) :: _ ⇒
+      exact ⟨x, y, z⟩
+  exhaustive by pigeon_step n
+
+
+-- ---------------------------------------------------------------
+-- 補題: 帰納による網羅性証明
+-- ---------------------------------------------------------------
+-- 「f : Fin (suc n) → Fin n の multiset 観察が、衝突なしには
+--  n+1 要素を埋め尽くせない」を、Fin n の要素数 n に関する帰納で示す。
+--
+-- pattern-match-oriented では「Fin n の値ごとに出力が一意である状態」
+-- を multiset 全体のパターンで表現する:
+--   ($x1 → #0) :: ($x2 → #1) :: ... :: ($xn → #(n-1)) :: []
+-- このパターンに加えてもう 1 要素 ($xn+1 → ?) が必ず存在 (要素数 n+1)
+-- することから、? は必ず {0,...,n-1} のいずれかに被る。
+
+lemma pigeon_step (n : Nat) (f : Fin (suc n) → Fin n)
+    matches (($x → $y) :: ($z → #y) :: _)
+          | (...衝突なしパターン: Fin n の全要素を 1 度ずつ消費する形...)
+    as multiset (Fin (suc n) → Fin n)
+  := by
+  -- n に関する帰納。
+  induction n with
+  | zero ⇒
+      -- f : Fin 1 → Fin 0。Fin 0 は空なので出力が存在しない。
+      -- f fz : Fin 0 は absurd。
+      exact (absurd (f fz))
+  | suc n' ih ⇒
+      -- f の最初の観察 ($x → $y) を取り出し、
+      -- 残りの multiset から #y が見つかれば衝突 (左パターン)。
+      -- 見つからなければ「残り multiset では $y は使われない」ので
+      -- 値域を Fin n' に絞った関数とみなし ih を適用。
+      match f as multiset (Fin (suc (suc n')) → Fin (suc n')) with
+      | ($x → $y) :: ($z → #y) :: _ ⇒ exact (left ⟨x, y, z⟩)
+      | ($x → $y) :: $g'           ⇒
+          -- g' : multiset where output never equals y
+          -- → g' を Fin (suc n') → Fin n' の関数として再構成
+          -- → ih を適用
+          exact (right (ih (restrict g' y)))
+
+
+-- ---------------------------------------------------------------
+-- 補助 (パーサ・型検査器が解釈すべきもの)
+-- ---------------------------------------------------------------
+-- - `induction n with | zero ⇒ ... | suc n' ih ⇒ ...` は Nat の eliminator
+-- - `restrict g' y` は g' から出力 y を除外した Fin (suc n') → Fin n' を作る
+--   補助関数。Sym2 と同様に primitive にするか、後で標準ライブラリ化する。
+-- - `absurd` は空型からの eliminator。Fin 0 が空であることを使う。
+-- - `left` / `right` は選言パターン `p1 | p2` の選択子。

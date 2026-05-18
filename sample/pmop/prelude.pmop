@@ -1,0 +1,221 @@
+-- prelude.pmop
+-- pattern-match-oriented proof 言語の共通前提部。
+-- 後続の pigeonhole / ramsey / schur が依存する型・matcher・identity をここに集約する。
+-- 構文方針: pwl-ramsey.md 準拠 (Lean 4 風)。
+
+-- ---------------------------------------------------------------
+-- 1. ベース帰納型
+-- ---------------------------------------------------------------
+
+inductive Nat : Type
+  | zero : Nat
+  | suc  : Nat → Nat
+
+inductive Bool : Type
+  | true  : Bool
+  | false : Bool
+
+inductive Color : Type
+  | red  : Color
+  | blue : Color
+
+-- 反対色。Schur では使わないが Ramsey の反対色三角形分岐で要る。
+def opposite : Color → Color
+  | red  ⇒ blue
+  | blue ⇒ red
+
+-- ---------------------------------------------------------------
+-- 2. Identity type (MLTT, primitive)
+-- ---------------------------------------------------------------
+-- 既存の data $Eq を捨て、cpp-plan §「ベース」に合わせて primitive 化する。
+-- J (path induction) は型検査器組み込みで定義する。
+
+primitive type Id  : (A : Type) → A → A → Type
+primitive cons refl : {A : Type} (a : A) → Id A a a
+primitive elim J
+  : {A : Type}
+    (C : (x y : A) → Id A x y → Type)
+    (d : (x : A) → C x x (refl x))
+    {x y : A} (p : Id A x y)
+    → C x y p
+
+-- 派生 (term mode で書ける)
+def sym {A : Type} {x y : A} : Id A x y → Id A y x
+  | refl ⇒ refl
+
+def trans {A : Type} {x y z : A} : Id A x y → Id A y z → Id A x z
+  | refl, refl ⇒ refl
+
+-- ---------------------------------------------------------------
+-- 3. Decidable equality (#-pattern 解禁条件)
+-- ---------------------------------------------------------------
+-- cpp-plan §「技術的制約」より、非線形パターン #c は decidable
+-- equality を持つ型でのみ使える。`decidable_eq T` という宣言が
+-- 立っている型に限り value pattern が許される。
+
+decidable_eq Nat
+decidable_eq Bool
+decidable_eq Color
+
+-- ---------------------------------------------------------------
+-- 4. 有限型 Fin n
+-- ---------------------------------------------------------------
+
+inductive Fin : Nat → Type
+  | fz : {n : Nat} → Fin (suc n)
+  | fs : {n : Nat} → Fin n → Fin (suc n)
+
+decidable_eq (Fin n)
+
+-- 数値リテラルの省略記法 (パーサで Fin の文脈なら fs^k fz に脱糖)
+-- 0 : Fin (suc n) は fz、1 は fs fz、…
+
+-- PosFin n = {1, 2, ..., n}
+-- Schur のように「0 を含めると定理が自明に成立してしまう」
+-- 状況で使う、1 始まりの有限型。構造は Fin と同型 (PosFin n ≃ Fin n)
+-- だが、値の解釈が違うため別の inductive として導入する:
+--   one         : PosFin (suc n)         -- 値 1
+--   suc one     : PosFin (suc (suc n))   -- 値 2
+--   suc (suc one) : PosFin (suc (suc (suc n)))   -- 値 3
+--   ...
+-- すなわち |PosFin n| = n、ただし表す値は {1, ..., n}。
+
+inductive PosFin : Nat → Type
+  | one : {n : Nat} → PosFin (suc n)
+  | suc : {n : Nat} → PosFin n → PosFin (suc n)
+
+decidable_eq (PosFin n)
+
+-- 数値リテラル: PosFin の文脈なら 1 = one, 2 = suc one, ...
+
+-- 加算 (n を超えたら None)
+def addBoundedPosFin : {n : Nat} → PosFin n → PosFin n → Option (PosFin n)
+  := primitive  -- 実装は Nat 埋め込み後に上限チェック
+
+-- ---------------------------------------------------------------
+-- 5. Sym2 (順序なしペア、primitive matcher)
+-- ---------------------------------------------------------------
+-- 形式的には A × A / (x,y) ~ (y,x) の商型。cpp-plan §「新規機能」より
+-- 商型として導入せず matcher として primitive 化する。
+--
+-- 構成子 mk : A → A → Sym2 A は組み込み。
+-- 自己ループは持たない: mk x y を作る時点で x ≠ y を要求する形でも、
+-- マッチ側の matcher が「両端が必ず異なる」性質を提供する形でもよい。
+-- ここでは matcher 側に責務を寄せる (Sym2 matcher 規則を参照)。
+
+primitive type Sym2 : Type → Type
+primitive cons mk  : {A : Type} → (x y : A) → Sym2 A
+
+-- Sym2 matcher: target を Sym2 A として見たとき、
+-- pattern `(p1, p2)` は順序を問わずマッチする。
+--   target = mk a b に対し
+--     (p1, p2) は p1↦a, p2↦b でも p1↦b, p2↦a でも match を試す。
+--   #-パターンが混じる場合は decidable_eq に従って枝が決まる。
+primitive matcher Sym2_matcher : (A : Type) → Sym2 A → Type
+
+-- ---------------------------------------------------------------
+-- 6. multiset matcher
+-- ---------------------------------------------------------------
+-- cpp-plan §「新規機能 2」より multiset は primitive matcher。
+-- 対象は List A だけでなく、有限関数 A → B も
+-- 「⟦(a, f a) | a : A⟧ の multiset」とみなしてマッチできる
+-- (これが pwl-ramsey.md の `as multiset (Sym2 (Fin 6) → Color)` の意味)。
+--
+-- 受け付けるパターン形:
+--   _                       …… any
+--   $x                      …… capture, target 全体
+--   #e                      …… value pattern (decidable_eq 要)
+--   p :: q                  …… 1 要素 p を取り出し、残り multiset を q にマッチ
+--   p → q                   …… target が関数 multiset のとき、
+--                                入力 multiset 要素 (a, f a) を input pat p、
+--                                output pat q にマッチ
+--   p₁ | p₂                 …… 選択
+--   p₁ & p₂                 …… 連接 (同じ要素に両方マッチ)
+--   !p                      …… 否定 (p にマッチしない)
+
+primitive matcher multiset
+  : {A : Type} → A → Type            -- "A は List 型でも、関数型でもよい"
+
+-- multiset の `::` で取り出された要素群は互いに異なる
+-- (重複度は保たれる、すなわち集合ではなく多重集合) という性質を、
+-- 型検査器は #c 等で参照できなければならない。
+-- これが pigeonhole / ramsey での「相異性が自動導出」の根拠。
+
+-- ---------------------------------------------------------------
+-- 6.5. list (ordered-multiset) matcher
+-- ---------------------------------------------------------------
+-- cpp-plan §「ストレッチゴール」の Erdős–Szekeres に必要な、
+-- 順序を保つ matcher。multiset との違いは「要素を取り出す位置の
+-- 前後関係が保たれる」こと:
+--
+--   multiset: 任意の要素を任意の順で取り出してよい
+--   list    : 取り出した要素は target 内での出現順を保つ
+--
+-- 受け付けるパターン形 (multiset の上位互換):
+--   _                       …… any
+--   $x                      …… capture
+--   #e                      …… value pattern
+--   p₁ :: p₂                …… 先頭要素 p₁、残り p₂ (cons)
+--   p₁ ++ p₂                …… p₁ にマッチする prefix、残り p₂
+--   _ ++ p :: rest          …… 任意位置で p を取り出し、それ以降を rest
+--                                (これが Erdős–Szekeres の核)
+--   p → q                   …… 関数 list での (入力, 出力) 分解
+--   p₁ | p₂ / p₁ & p₂ / !p  …… 選択 / 連接 / 否定 (multiset と同じ)
+--   ?(predicate)            …… 現在束縛されているパターン変数に対する
+--                                bool 述語。true で match 続行、false で枝落ち。
+
+primitive matcher list
+  : {A : Type} → A → Type            -- A は List 型または有限定義域の関数型
+
+-- list を関数型 (Fin n → B) に適用すると、入力位置の昇順
+-- (fz < fs fz < fs (fs fz) < ...) で (入力, 出力) ペアを並べた
+-- ordered sequence とみなしてマッチする。
+
+-- ---------------------------------------------------------------
+-- 6.6. bipartite-graph matcher
+-- ---------------------------------------------------------------
+-- cpp-plan §「ストレッチゴール」の Hall の結婚定理に必要な
+-- 二部グラフ用 matcher。
+--
+-- 入力は edge : A → B → Bool (隣接関係) または等価な構造。
+-- マッチは「サイズ k の matching」(両側の頂点で重複なく辺を k 本選ぶ)
+-- を取り出す形を取る。
+--
+-- 受け付けるパターン形:
+--   ($b₁, $g₁) :: ($b₂ & !#b₁, $g₂ & !#g₁) :: ... :: _
+--     boy 側・girl 側それぞれの重複なし条件を !# パターンで自動付加。
+--   matcher 側で簡略構文を提供する:
+--   matching of length k:
+--     ⟨ $b₁ ↔ $g₁ ; $b₂ ↔ $g₂ ; ... ; $bₖ ↔ $gₖ ⟩
+--     ↔ は「辺の存在」と「両側 distinctness」を一気に表す糖衣構文。
+--
+-- 一般 Hall は subset 量化が要るため bipartite matcher 単独では
+-- 閉じない (Hall 条件は仮定として与える)。
+
+primitive matcher bipartite
+  : {A B : Type} → (A → B → Bool) → Type
+
+-- ---------------------------------------------------------------
+-- 7. matches 命題 (式レベル)
+-- ---------------------------------------------------------------
+-- cpp-plan §「新規機能 1」より、`matches P as M` は命題 (Type 0)。
+-- 意味論: ∃ binding, P[binding] が e を matcher M で覆う、を Σ にエンコード。
+-- 細則は型検査器に任せる。ここでは構文を使えることだけ確認する。
+--
+--   theorem f (e : T) matches PAT as M    -- 命題は省略 (`Type` に推論)
+--   theorem f (e : T) : P matches PAT as M
+--
+-- 後者形は明示型注釈。前者形は推論。
+
+-- ---------------------------------------------------------------
+-- 8. exhaustive by 補題
+-- ---------------------------------------------------------------
+-- match 式の `_` 節 / 全体の網羅性を、補題で保証する形:
+--
+--   match e as M with
+--   | p1 ⇒ b1
+--   | ...
+--   | pn ⇒ bn
+--   exhaustive by lemma
+--
+-- ここで lemma : e matches (p1 | ... | pn) as M を持つこと、を要求する。

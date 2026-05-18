@@ -1,0 +1,86 @@
+-- ramsey.pmop
+-- Ramsey R(3,3) = 6 を pattern-match-oriented proof で書く。
+-- 中身は design/pwl-ramsey.md §B をそのまま実コード形式に直したもの。
+-- 主定理 + 補題 2 つで構成し、主張がパターン構文だけで書けることを示す
+-- (`monochromatic` などの補助定義を経由しない) のが本ファイルの主眼。
+
+import prelude
+
+-- ---------------------------------------------------------------
+-- 補題 1: 鳩の巣原理 (頂点 v からの 5 辺を 2 色で塗ると同色 3 辺以上)
+-- ---------------------------------------------------------------
+-- 主定理の外側マッチのワイルドカード節 (背理法) に使う。
+
+lemma pigeonhole_edges (edge : Sym2 (Fin 6) → Color)
+    matches ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _
+    as multiset (Sym2 (Fin 6) → Color)
+  := by
+  -- 任意の頂点 v ∈ Fin 6 を 1 つ固定すると、v に接続する辺は 5 本。
+  -- これを 2 色で塗るので、鳩の巣で同色 3 辺以上が必ずある。
+  -- multiset matcher の :: 3 段で取り出した 3 要素は互いに異なる
+  -- (multiset 性) ので、x, y, z は (Sym2 の自己ループ非存在から)
+  -- v, 互いに、それぞれ異なる。
+  match edge as multiset (Sym2 (Fin 6) → Color) with
+  | ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ ⇒
+      exact ⟨v, x, c, y, z⟩
+  -- ネストした _ 節は次のように分解する (cpp-plan §「exhaustive by」):
+  --   (#v, $y') → #c が見つからない時、(#v, $y') → (!#c & $c') :: ... の形へ
+  --   (#v, $z') → #c が見つからない時、もう 1 段の入れ子へ
+  | ($v, $x) → $c :: (#v, $y') → (!#c & $c') :: (#v, $z') → #c' :: _ ⇒
+      exact ⟨v, x', c', y', z'⟩
+  exhaustive by pigeonhole_5_edges_2_colors
+
+
+-- ---------------------------------------------------------------
+-- 補題 2: 2 色 3 値の網羅性
+-- ---------------------------------------------------------------
+-- 主定理の内側マッチ (3 辺の色で場合分け) の網羅性を保証。
+
+lemma two_color_exhaustive (c : Color) ((x, y, z) : (Color, Color, Color))
+    matches (#c, _, _) | (_, #c, _) | (_, _, #c) | ($c', #c', #c')
+  := by
+  -- Color は 2 値、ターゲットは 3 値なので 2^3 = 8 通りを全数検査。
+  -- decidable_eq Color から各 # 判定は決定可能。
+  decide
+
+
+-- ---------------------------------------------------------------
+-- 主定理: Ramsey R(3,3) = 6
+-- ---------------------------------------------------------------
+-- 「K_6 の 2 色塗りには必ず単色三角形が存在する」を、
+-- 補助定義 monochromatic を経由せずパターンで直接表現する:
+--
+--   ($x, $y) → $c         …… 1 辺目: 端点 x, y、色 c
+--   (#y, $z) → #c         …… 2 辺目: y に隣接し、新しい端点 z、同色 c
+--   (#z, #x) → #c         …… 3 辺目: z と x を結び、同色 c → 三角形成立
+--
+-- ここに自動的に含まれる主張 (pwl-ramsey.md §「自動導出」参照):
+--   - x, y, z は互いに異なる (Sym2 自己ループ非存在 + multiset ::)
+--   - 3 辺は三角形を構成する
+--   - 3 辺は同色 (非線形 #c)
+
+theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
+    matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
+    as multiset (Sym2 (Fin 6) → Color)
+  := by
+  -- ★ 外側: edge から「v に接続する同色 3 辺」を取り出す。
+  --   ここで使う v ∈ Fin 6 は任意でよい (定理は edge に対して全称) が、
+  --   v を fz と固定してもよい。今は v 自体もパターン変数として束縛する。
+  match edge as multiset (Sym2 (Fin 6) → Color) with
+  | ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ ⇒
+
+      -- ★ 内側: 残った辺のうち、x-y, y-z, x-z のいずれかが
+      --   色 c なら単色三角形 (v を頂点とする) が成立。
+      --   3 辺いずれも c で無いなら、x-y, y-z, x-z 自身が同色三角形を成す
+      --   (反対色は 1 つだけなので)。
+      match edge as multiset (Sym2 (Fin 6) → Color) with
+      | (#x, #y) → #c ⇒ exact ⟨v, x, c, y⟩
+      | (#y, #z) → #c ⇒ exact ⟨v, y, c, z⟩
+      | (#x, #z) → #c ⇒ exact ⟨v, x, c, z⟩
+      | (#x, #y) → $c' :: (#y, #z) → #c' :: (#x, #z) → #c' :: _ ⇒
+          exact ⟨x, y, c', z⟩
+      exhaustive by
+        two_color_exhaustive c
+          (edge (mk x y)) (edge (mk y z)) (edge (mk x z))
+
+  exhaustive by pigeonhole_edges edge
