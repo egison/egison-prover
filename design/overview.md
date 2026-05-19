@@ -10,11 +10,29 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
     as multiset (Sym2 (Fin 6) → Color)
 ```
 
-この提案の核心的価値は **証明の簡潔性ではなく、定理の主張自体が informal な数学的記述に近い形で書ける** ことにある。具体的には：
+この提案の核心的価値は **証明の簡潔性ではなく、定理の主張・適用の双方を informal な数学的記述に近い形でパターンとして書ける** ことにある。具体的には：
 
 - `monochromatic` のような補助定義を経由せず、構造を直接表現
 - 存在量化、相異性、非線形性（同色性）がパターン構文に吸収される
 - 数学者が思考するときの「三角形・単色」という構造的把握と一致
+- 定理の適用も同じパターン言語で行える：定理が成り立つということは「対象がこのパターンにマッチする／しない」という主張として読め、適用は `matches P as M` 命題に対する推論として一様に扱える
+
+### 主張と適用の一致：具体例
+
+完全な作業例は [pwl-ramsey.md](pwl-ramsey.md) を参照。最も鮮明な対応として、補題 `pigeonhole_edges` の主張側のパターン
+
+```
+matches ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _
+    as multiset (Sym2 (Fin 6) → Color)
+```
+
+は、`ramsey_3_3_6` の証明中の `match` 腕
+
+```
+| ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ => ...
+```
+
+と文字通り同一の構文を持ち、`exhaustive by pigeonhole_edges edge` がこの一致を補題として要求する。主張側では「∃ 形の命題」として、適用側では「destructuring」として、同じパターン文字列が双方向に使われる。この対応は `two_color_exhaustive` と内側の `match` でも同様に繰り返されており、原理が二段で働くことが確認できる。
 
 組合せ論的定理（Erdős–Szekeres、Schur、Hall）でも同様の利点が得られると予想される。
 
@@ -97,14 +115,14 @@ CoC や MLTT 全体は実装せず、最小核に絞る。
 
 ### 中心的な例
 
-- **Ramsey R(3,3) = 6**：既にスケッチあり（`pwl-ramsey.md`）
-- **鳩の巣原理（一般形）**：multiset matcher の典型例
-- **Schur の定理（小さい場合）**：`#c` 非線形パターン + `$(x+y)` の表現力を示す
+- **Ramsey R(3,3) = 6**：詳細あり（[pwl-ramsey.md](pwl-ramsey.md)）。`multiset` matcher + 非線形 `#c`
+- **Schur S(2) = 4**：詳細あり（[pwl-schur.md](pwl-schur.md)）。`set` matcher + 値パターン `#(x+y)` を追加
+- **鳩の巣原理（一般形）**：`multiset` matcher の典型例
 
 ### 拡張例
 
 - **Erdős–Szekeres**：順序付き multiset matcher の追加実装が必要
-- **Hall の結婚定理**：二部グラフ用 matcher
+- **Hall の結婚定理**：詳細あり（[pwl-hall.md](pwl-hall.md)）。`bipartite_graph` matcher による Hall 条件と完全マッチングの pattern 化
 
 ## 関連研究
 
