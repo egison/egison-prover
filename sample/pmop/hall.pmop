@@ -71,13 +71,20 @@ import prelude
 -- ---------------------------------------------------------------
 -- Hall 条件 (n = 3 用に explicit に列挙)
 -- ---------------------------------------------------------------
--- |Fin 3| = 3 なので部分集合は 2^3 = 8 個。空集合と全体を除いた
--- 6 個について N(S) のサイズ条件を書く。
+-- |Fin 3| = 3 なので部分集合は 2^3 = 8 個。空集合を除いた
+-- 7 個 (1 要素 3 つ、2 要素 3 つ、3 要素 1 つ) について
+-- N(S) のサイズ条件を書く。
 
 def neighbors_3
     (G : Multiset (Fin 3 × Fin 3)) (S : Multiset (Fin 3))
     : Multiset (Fin 3)
   := primitive  -- 後で multiset comprehension で実装
+  -- ⚠ 実装上の注意: 返り値は重複を除いた台集合 (support) でなければ
+  -- ならない。G の重複辺をそのまま数えると Hall 条件が誤って成立する:
+  --   G = ⟦(0,0), (0,0), (1,0), (2,2)⟧ では N({0,1}) の素朴サイズは
+  --   3 ≥ 2 となるが、実際の隣接 girl は {0} のみで、boys 0, 1 を
+  --   distinct な girl にマッチさせることはできず、hall_3 が偽になる。
+  -- (review_20260612.md A-4)
 
 def size_3 {A : Type} (xs : Multiset A) : Nat := primitive
 
@@ -136,12 +143,12 @@ lemma hall_3_violator_no_matching :
     let G : Multiset (Fin 3 × Fin 3)
           := ⟦(0, 0), (1, 0), (2, 2)⟧
     in
-    ¬ (matches
+    ¬ (G matches
          ($b1, $g1) ::
          ($b2 & !#b1, $g2 & !#g1) ::
          ($b3 & !#b1 & !#b2, $g3 & !#g1 & !#g2) ::
          _
-       as multiset (Fin 3 × Fin 3) for G)
+       as multiset (Fin 3 × Fin 3))
   := by decide
 
 -- ---------------------------------------------------------------
@@ -157,16 +164,16 @@ lemma hall_3_violator_no_matching :
 -- (c) multiset の bipartite 観察:
 --       (Fin n × Fin n) の multiset を辺集合と見て、boys 側 distinct
 --       かつ girls 側 distinct な部分多重集合を取り出すパターン。
---       prelude の bipartite matcher を導入したが、本ファイルでは
+--       prelude の bipartite_graph matcher を導入したが、本ファイルでは
 --       multiset + !# で素直に書ける範囲なので multiset matcher で済ませた。
---       bipartite matcher の真価は、Hall 条件を matcher 側に組み込んで
+--       bipartite_graph matcher の真価は、Hall 条件を matcher 側に組み込んで
 --       hypothesis を吸収させる拡張 (将来的) で出る。
 -- (d) decide tactic:
 --       n=3 固定で全数検査可能。
 --
 -- 一般形 Hall:
 --   n を変数にした一般の Hall は subset 量化が要るため
---   このスタイルでは一段難易度が上がる。cpp-plan のストレッチゴール
---   として位置付けられているのもこのため。
+--   このスタイルでは一段難易度が上がる (overview.md では固定インスタンスの
+--   Hall を中心例とし、一般形は scope 外の将来課題)。
 --   subset 量化を matcher 側 (powerset matcher 等) で吸収できれば、
 --   pattern-match-oriented で 1 行で書ける見込みがあるが本ファイルでは扱わない。

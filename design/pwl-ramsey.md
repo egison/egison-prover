@@ -13,7 +13,10 @@ K₆（6頂点の完全グラフ）の辺を赤・青の2色で塗ると、必�
 ```lean
 inductive Color | red | blue
 
+-- 注意: Mathlib の Sym2 は対角元 ⟦(x,x)⟧ を含むため、相異性を明示しないと
+-- ⟨x, x, x, edge ⟦(x,x)⟧, rfl, rfl, rfl⟩ で定理が自明に成立してしまう。
 def monochromatic (edge : Sym2 (Fin 6) → Color) (x y z : Fin 6) : Prop :=
+  x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
   ∃ c, edge ⟦(x,y)⟧ = c ∧ edge ⟦(y,z)⟧ = c ∧ edge ⟦(x,z)⟧ = c
 
 theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
@@ -42,7 +45,7 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 
 さらに、各パターン変数が満たすべき関係もパターンの構造から自動的に導かれる。
 具体的には、`($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _` というパターンから：
-- **相異性**: `$x`, `$y`, `$z` は `Sym2 (Fin 6)` の異なる辺を構成するため、互いに異なる値でなければならない（`x ≠ y`, `y ≠ z`, `z ≠ x`）。`Sym2` は自己ループ `⟦(v, v)⟧` を持たないため、各辺の両端が異なることも保証される。
+- **相異性**: Sym2 matcher のペアパターン `(p₁, p₂)` は対角元（自己ループ `⟦(v, v)⟧`）にマッチしない仕様とする（prelude.pmop の Sym2 matcher 規則）。よって 1 辺目から `x ≠ y`、2 辺目から `y ≠ z`、3 辺目から `z ≠ x` が従い、`x`, `y`, `z` は互いに異なる。
 - **三角形の構成**: 3つの辺 `⟦(x,y)⟧`, `⟦(y,z)⟧`, `⟦(z,x)⟧` が三角形を形成すること。
 - **単色性**: 非線形パターン変数 `#c` により、3辺すべてが同じ色 `c` であること。
 
@@ -84,7 +87,10 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
   let S := same_color_neighbors edge v c
   obtain ⟨x, hx, y, hy, z, hz, hxy, hxz, hyz⟩ :=
     Finset.exists_three_le_card S hc
-  -- v-x, v-y, v-z は全て色 c
+  -- v-x, v-y, v-z は全て色 c。x, y, z は v と異なる（filter の条件より）
+  have hvx : x ≠ v := (Finset.mem_filter.mp hx).2.1
+  have hvy : y ≠ v := (Finset.mem_filter.mp hy).2.1
+  have hvz : z ≠ v := (Finset.mem_filter.mp hz).2.1
   have edge_vx : edge ⟦(v, x)⟧ = c := by
     exact (Finset.mem_filter.mp hx).2.2
   have edge_vy : edge ⟦(v, y)⟧ = c := by
@@ -92,14 +98,14 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
   have edge_vz : edge ⟦(v, z)⟧ = c := by
     exact (Finset.mem_filter.mp hz).2.2
   -- x-y, y-z, x-z の色で場合分け（3辺の色をフラットに分岐）
-  rcases Decidable.em (edge ⟦(x, y)⟧ = c) with hxy | hxy
-  · exact ⟨v, x, y, ⟨c, edge_vx, hxy, edge_vy⟩⟩
-  rcases Decidable.em (edge ⟦(y, z)⟧ = c) with hyz | hyz
-  · exact ⟨v, y, z, ⟨c, edge_vy, hyz, edge_vz⟩⟩
-  rcases Decidable.em (edge ⟦(x, z)⟧ = c) with hxz | hxz
-  · exact ⟨v, x, z, ⟨c, edge_vx, hxz, edge_vz⟩⟩
+  rcases Decidable.em (edge ⟦(x, y)⟧ = c) with hcxy | hcxy
+  · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, ⟨c, edge_vx, hcxy, edge_vy⟩⟩
+  rcases Decidable.em (edge ⟦(y, z)⟧ = c) with hcyz | hcyz
+  · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, ⟨c, edge_vy, hcyz, edge_vz⟩⟩
+  rcases Decidable.em (edge ⟦(x, z)⟧ = c) with hcxz | hcxz
+  · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, ⟨c, edge_vx, hcxz, edge_vz⟩⟩
   -- 全て c でない → 反対色の三角形
-  exact ⟨x, y, z, ⟨opposite c,
+  exact ⟨x, y, z, hxy, hyz, hxz, ⟨opposite c,
     by cases edge ⟦(x, y)⟧ <;> cases c <;> simp_all,
     by cases edge ⟦(y, z)⟧ <;> cases c <;> simp_all,
     by cases edge ⟦(x, z)⟧ <;> cases c <;> simp_all⟩⟩
@@ -180,6 +186,8 @@ lemma triangle_two_color_exhaustive
 `(#v, $x)` によって、指定された `v` から出る辺だけを `edge` の multiset から直接拾う。
 したがって、この補題の内容は完全グラフ全体に対するパターンではなく、
 「固定した1頂点から出る5本の辺」に対する鳩の巣原理である。
+
+なお、`pigeonhole_edges_at` の証明中の入れ子 `match` 群には `exhaustive by` が付与されていない。これらの網羅性は数え上げ（deg(v) = 5、`::` で取り出すごとに残る v の辺が 1 本減ること、2 色性）に依存しており、counting 層の体系化が未設計のため正当化が保留されている（review_20260612.md B-3 参照）。
 
 `triangle_two_color_exhaustive` は、旧版の `two_color_exhaustive` のように
 `(edge ⟦(x,y)⟧, edge ⟦(y,z)⟧, edge ⟦(x,z)⟧)` というタプルを対象にしない。
@@ -271,14 +279,14 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 
 **定理の `matches` パターンからの関係の列挙:**
 定理のパターン `($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _` からは、証明すべき以下の関係が自動的に列挙される：
-- **相異性**: `x ≠ y`, `y ≠ z`, `z ≠ x`（`Sym2` の性質と multiset の `::` から）
+- **相異性**: `x ≠ y`, `y ≠ z`, `z ≠ x`（各辺パターンが自己ループにマッチしない Sym2 matcher の性質から）
 - **三角形の構成**: 3辺 `⟦(x,y)⟧`, `⟦(y,z)⟧`, `⟦(z,x)⟧` の形成
 - **単色性**: `edge ⟦(x,y)⟧ = c`, `edge ⟦(y,z)⟧ = c`, `edge ⟦(z,x)⟧ = c`（非線形パターン `#c` から）
 
 **証明内部の外側 `match` パターンからの関係の導出:**
 外側のパターン `(#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _` にマッチしたことから、以下の関係が自動的に導出される：
-1. **頂点の相異性（Sym2 の性質から）**: `v ≠ x`, `v ≠ y`, `v ≠ z` — `Sym2` は自己ループを持たないため、各辺の両端は異なる。
-2. **辺の相異性（multiset の `::` から）**: `x ≠ y`, `x ≠ z`, `y ≠ z` — multiset から `::` で取り出した要素は互いに異なるため。
+1. **頂点の相異性（Sym2 matcher の性質から）**: `v ≠ x`, `v ≠ y`, `v ≠ z` — ペアパターンは自己ループにマッチしないため、マッチした各辺の両端は異なる。
+2. **辺の相異性（duplicate-free 性 + multiset の `::` から）**: `x ≠ y`, `x ≠ z`, `y ≠ z` — multiset の `::` が保証するのは取り出した「出現」の相異までであり、一般の多重集合では値の相異は従わない（`⟦a, a⟧` は `$x :: #x :: _` にマッチする）。ここでは対象が関数 `edge` のグラフでありキーの重複がない（duplicate-free）ため、3 つの出現は相異なる辺。3 辺が共通端点 `v` を持つことと合わせて `x`, `y`, `z` の相異が従う。
 3. **同色性（非線形パターンから）**: `edge ⟦(v,x)⟧ = c`, `edge ⟦(v,y)⟧ = c`, `edge ⟦(v,z)⟧ = c` — 非線形パターン `#v`, `#c` によるマッチから。
 
 **証明内部の内側 `match` パターンからの関係の導出:**

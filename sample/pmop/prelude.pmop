@@ -27,7 +27,7 @@ def opposite : Color → Color
 -- ---------------------------------------------------------------
 -- 2. Identity type (MLTT, primitive)
 -- ---------------------------------------------------------------
--- 既存の data $Eq を捨て、cpp-plan §「ベース」に合わせて primitive 化する。
+-- 既存の data $Eq を捨て、overview.md §「ベース」に合わせて primitive 化する。
 -- J (path induction) は型検査器組み込みで定義する。
 
 primitive type Id  : (A : Type) → A → A → Type
@@ -49,7 +49,7 @@ def trans {A : Type} {x y z : A} : Id A x y → Id A y z → Id A x z
 -- ---------------------------------------------------------------
 -- 3. Decidable equality (#-pattern 解禁条件)
 -- ---------------------------------------------------------------
--- cpp-plan §「技術的制約」より、非線形パターン #c は decidable
+-- overview.md §「技術的制約」より、非線形パターン #c の match 実行は decidable
 -- equality を持つ型でのみ使える。`decidable_eq T` という宣言が
 -- 立っている型に限り value pattern が許される。
 
@@ -95,7 +95,7 @@ def addBoundedPosFin : {n : Nat} → PosFin n → PosFin n → Option (PosFin n)
 -- ---------------------------------------------------------------
 -- 5. Sym2 (順序なしペア、primitive matcher)
 -- ---------------------------------------------------------------
--- 形式的には A × A / (x,y) ~ (y,x) の商型。cpp-plan §「新規機能」より
+-- 形式的には A × A / (x,y) ~ (y,x) の商型。overview.md §「新規機能」より
 -- 商型として導入せず matcher として primitive 化する。
 --
 -- 構成子 mk : A → A → Sym2 A は組み込み。
@@ -116,7 +116,7 @@ primitive matcher Sym2_matcher : (A : Type) → Sym2 A → Type
 -- ---------------------------------------------------------------
 -- 6. multiset matcher
 -- ---------------------------------------------------------------
--- cpp-plan §「新規機能 2」より multiset は primitive matcher。
+-- overview.md §「新規機能 2」より multiset は primitive matcher。
 -- 対象は List A だけでなく、有限関数 A → B も
 -- 「⟦(a, f a) | a : A⟧ の multiset」とみなしてマッチできる
 -- (これが pwl-ramsey.md の `as multiset (Sym2 (Fin 6) → Color)` の意味)。
@@ -136,15 +136,38 @@ primitive matcher Sym2_matcher : (A : Type) → Sym2 A → Type
 primitive matcher multiset
   : {A : Type} → A → Type            -- "A は List 型でも、関数型でもよい"
 
--- multiset の `::` で取り出された要素群は互いに異なる
--- (重複度は保たれる、すなわち集合ではなく多重集合) という性質を、
--- 型検査器は #c 等で参照できなければならない。
--- これが pigeonhole / ramsey での「相異性が自動導出」の根拠。
+-- multiset の `::` で取り出されるのは互いに異なる「出現」である
+-- (1 回取り出すごとに重複度が 1 減る)。値としての相異性は一般には
+-- 従わない: ⟦a, a⟧ は $x :: #x :: _ にマッチする。
+-- 対象が関数のグラフのように duplicate-free な場合に限り、
+-- 出現の相異 = 値 (辺・キー) の相異となる。
+-- これが pigeonhole / ramsey での「相異性が自動導出」の正確な根拠であり、
+-- 型検査器はこの性質 (duplicate-free 条件付き) を #c 等で参照できる
+-- 必要がある。
+
+-- ---------------------------------------------------------------
+-- 6.4. set matcher
+-- ---------------------------------------------------------------
+-- overview.md §「新規機能 2」/ pwl-schur.md で導入。multiset との違いは
+-- 「`::` で要素を取り出しても target が減らない」こと (集合は各要素を
+-- 無限個含むとみなす。Egison の set matcher と同じ)。
+-- したがって同じ要素を複数回取り出せる: ⟦a⟧ は $x :: #x :: _ にマッチ。
+--
+-- Schur (schur.pmop) のように「x = y を許す」主張はこちらを使う。
+-- multiset を使うと x ≠ y が強制されて主張が変わり、Schur では偽になる
+-- (red = {1,2,4}, blue = {3,5} が反例。review_20260612.md A-1)。
+-- matcher の選択が主張の意味を決める典型例。
+--
+-- 受け付けるパターン形は multiset と同じ
+-- (_, $x, #e, p :: q, p → q, p₁ | p₂, p₁ & p₂, !p)。
+
+primitive matcher set
+  : {A : Type} → A → Type            -- A は List 型でも、関数型でもよい
 
 -- ---------------------------------------------------------------
 -- 6.5. list (ordered-multiset) matcher
 -- ---------------------------------------------------------------
--- cpp-plan §「ストレッチゴール」の Erdős–Szekeres に必要な、
+-- overview.md §「拡張候補」の Erdős–Szekeres に必要な、
 -- 順序を保つ matcher。multiset との違いは「要素を取り出す位置の
 -- 前後関係が保たれる」こと:
 --
@@ -174,8 +197,7 @@ primitive matcher list
 -- ---------------------------------------------------------------
 -- 6.6. bipartite-graph matcher
 -- ---------------------------------------------------------------
--- cpp-plan §「ストレッチゴール」の Hall の結婚定理に必要な
--- 二部グラフ用 matcher。
+-- overview.md の中心例 Hall の結婚定理に必要な二部グラフ用 matcher。
 --
 -- 入力は edge : A → B → Bool (隣接関係) または等価な構造。
 -- マッチは「サイズ k の matching」(両側の頂点で重複なく辺を k 本選ぶ)
@@ -192,13 +214,17 @@ primitive matcher list
 -- 一般 Hall は subset 量化が要るため bipartite matcher 単独では
 -- 閉じない (Hall 条件は仮定として与える)。
 
-primitive matcher bipartite
+-- 名称は overview.md / pwl-hall.md の bipartite_graph に統一。
+-- ただし本インタフェース (隣接関係 A → B → Bool ベース、matching 取り出し
+-- 中心) と pwl-hall.md の ⤳ / matching_of パターンコンストラクタ案との
+-- 統合は未了 (review_20260612.md C-3)。
+primitive matcher bipartite_graph
   : {A B : Type} → (A → B → Bool) → Type
 
 -- ---------------------------------------------------------------
 -- 7. matches 命題 (式レベル)
 -- ---------------------------------------------------------------
--- cpp-plan §「新規機能 1」より、`matches P as M` は命題 (Type 0)。
+-- overview.md §「新規機能 1」より、`matches P as M` は命題 (Type 0)。
 -- 意味論: ∃ binding, P[binding] が e を matcher M で覆う、を Σ にエンコード。
 -- 細則は型検査器に任せる。ここでは構文を使えることだけ確認する。
 --

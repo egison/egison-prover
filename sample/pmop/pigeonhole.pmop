@@ -58,6 +58,16 @@ theorem pigeonhole (n : Nat) (f : Fin (suc n) → Fin n)
 -- このパターンに加えてもう 1 要素 ($xn+1 → ?) が必ず存在 (要素数 n+1)
 -- することから、? は必ず {0,...,n-1} のいずれかに被る。
 
+-- ⚠ 未完成 (design/review_20260612.md B-3, B-2 参照):
+--   - 第 2 選言肢「衝突なしパターン」は一般の n では可変長パターン
+--     (Fin n の全要素を 1 度ずつ消費する形) を要し、現行のパターン文法では
+--     書けない。可変長 cons 連鎖の導入かメタ的展開が必要。
+--   - 下の suc 分岐の第 2 腕は「第 1 腕が失敗した」という負情報
+--     (g' に出力 y が現れない) に暗黙に依存しており、restrict g' y の
+--     正当化にはフォールスルーの負情報を型文脈へ取り込む規則が要る。
+--     ramsey / schur のように後続の腕へ !# パターンを明示する方針に
+--     揃えるのが安全だが、一般 n では上記の可変長問題に帰着する。
+
 lemma pigeon_step (n : Nat) (f : Fin (suc n) → Fin n)
     matches (($x → $y) :: ($z → #y) :: _)
           | (...衝突なしパターン: Fin n の全要素を 1 度ずつ消費する形...)
@@ -78,8 +88,13 @@ lemma pigeon_step (n : Nat) (f : Fin (suc n) → Fin n)
       | ($x → $y) :: ($z → #y) :: _ ⇒ exact (left ⟨x, y, z⟩)
       | ($x → $y) :: $g'           ⇒
           -- g' : multiset where output never equals y
+          --   (この事実は第 1 腕の失敗というフォールスルーの負情報に
+          --    依存する。上記 ⚠ 参照)
           -- → g' を Fin (suc n') → Fin n' の関数として再構成
           -- → ih を適用
+          -- TODO: ih は選言全体 (衝突 | 衝突なし) を返すため、right で
+          --   包むのは不正確。ih が左 (衝突) を返した場合は restrict の
+          --   逆向きの持ち上げで f の衝突に変換する分岐が必要。
           exact (right (ih (restrict g' y)))
 
 

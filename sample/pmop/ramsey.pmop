@@ -1,45 +1,77 @@
 -- ramsey.pmop
 -- Ramsey R(3,3) = 6 を pattern-match-oriented proof で書く。
--- 中身は design/pwl-ramsey.md §B をそのまま実コード形式に直したもの。
+-- 中身は design/pwl-ramsey.md §B (改訂版) をそのまま実コード形式に直したもの。
 -- 主定理 + 補題 2 つで構成し、主張がパターン構文だけで書けることを示す
 -- (`monochromatic` などの補助定義を経由しない) のが本ファイルの主眼。
+--
+-- 改訂方針 (pwl-ramsey.md §B):
+--   - edge 以外の補助的な辺色関数・射影 (spokes、色タプル等) を作らず、
+--     外側・内側とも同じ edge を multiset として直接観察する
+--   - 補題側の主張パターンと適用側の match 腕を字面一致させる
+--     (exhaustive by の検査がこの一致を要求する)
 
 import prelude
 
 -- ---------------------------------------------------------------
--- 補題 1: 鳩の巣原理 (頂点 v からの 5 辺を 2 色で塗ると同色 3 辺以上)
+-- 補題 1: 鳩の巣原理 (固定した頂点 v からの 5 辺を 2 色で塗ると同色 3 辺以上)
 -- ---------------------------------------------------------------
--- 主定理の外側マッチのワイルドカード節 (背理法) に使う。
+-- v は補題の引数として固定し、(#v, $x) パターンによって
+-- 「v に接続する辺」だけを edge 全体の multiset から直接拾う。
+-- 主定理の外側 match の網羅性を保証する。
 
-lemma pigeonhole_edges (edge : Sym2 (Fin 6) → Color)
-    matches ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _
+lemma pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6)
+    matches (#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _
     as multiset (Sym2 (Fin 6) → Color)
   := by
-  -- 任意の頂点 v ∈ Fin 6 を 1 つ固定すると、v に接続する辺は 5 本。
-  -- これを 2 色で塗るので、鳩の巣で同色 3 辺以上が必ずある。
-  -- multiset matcher の :: 3 段で取り出した 3 要素は互いに異なる
-  -- (multiset 性) ので、x, y, z は (Sym2 の自己ループ非存在から)
-  -- v, 互いに、それぞれ異なる。
+  -- v の次数は 5 (K₆。Sym2 matcher のペアパターンは自己ループにマッチしない)。
+  -- 5 辺を 2 色に分けるので、鳩の巣で同色 3 辺以上が必ずある。
+  -- multiset の :: で取り出した 3 要素は相異なる出現であり、対象が関数
+  -- edge のグラフ (duplicate-free) なので相異なる辺。共通端点 v を持つ
+  -- ことから x, y, z も相異 (prelude.pmop §6 の注意を参照)。
   match edge as multiset (Sym2 (Fin 6) → Color) with
-  | ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ ⇒
-      exact ⟨v, x, c, y, z⟩
-  -- ネストした _ 節は次のように分解する (cpp-plan §「exhaustive by」):
-  --   (#v, $y') → #c が見つからない時、(#v, $y') → (!#c & $c') :: ... の形へ
-  --   (#v, $z') → #c が見つからない時、もう 1 段の入れ子へ
-  | ($v, $x) → $c :: (#v, $y') → (!#c & $c') :: (#v, $z') → #c' :: _ ⇒
-      exact ⟨v, x', c', y', z'⟩
-  exhaustive by pigeonhole_5_edges_2_colors
+  | (#v, $x) → $c :: $edge' ⇒
+    match edge' as multiset (Sym2 (Fin 6) → Color) with
+    | (#v, $y) → #c :: $edge'' ⇒
+      match edge'' as multiset (Sym2 (Fin 6) → Color) with
+      | (#v, $z) → #c :: _ ⇒
+          exact ⟨x, c, y, z⟩
+      | (#v, $x') → (!#c & $c') ::
+        (#v, $y') → #c' ::
+        (#v, $z') → #c' :: _ ⇒
+          exact ⟨x', c', y', z'⟩
+      -- TODO(網羅性): edge'' に残る v の辺は 3 本。どれも c でなければ
+      -- 2 色性から 3 本とも同色 c' になる、という数え上げの正当化が必要。
+      -- counting 層は未設計 (design/review_20260612.md B-3)。
+    | (#v, $x') → (!#c & $c') ::
+      (#v, $y') → #c' ::
+      (#v, $z') → #c' :: _ ⇒
+        exact ⟨x', c', y', z'⟩
+    -- TODO(網羅性): 同上 (edge' に残る v の辺は 4 本。c が無ければ
+    -- 4 本とも c' なので 3 本取れる)。
+  -- TODO(網羅性): deg(v) = 5 ≥ 1 から外側の取り出しは常に成功する。
 
 
 -- ---------------------------------------------------------------
--- 補題 2: 2 色 3 値の網羅性
+-- 補題 2: 三角形内部 3 辺に関する 2 色の網羅性
 -- ---------------------------------------------------------------
--- 主定理の内側マッチ (3 辺の色で場合分け) の網羅性を保証。
+-- 旧版のように色のタプル (Color, Color, Color) に射影せず、
+-- edge 自体を multiset として扱う (pwl-ramsey.md §B 改訂版)。
+-- 主定理の内側 match の 2 腕と字面一致するパターンを持つ。
+--
+-- 1. {x,y,z} の内部辺のどれか 1 本が色 c である。
+-- 2. そうでなければ、内部 3 辺すべてが同じ反対色 c' である。
 
-lemma two_color_exhaustive (c : Color) ((x, y, z) : (Color, Color, Color))
-    matches (#c, _, _) | (_, #c, _) | (_, _, #c) | ($c', #c', #c')
+lemma triangle_two_color_exhaustive
+    (edge : Sym2 (Fin 6) → Color)
+    (c : Color) (x y z : Fin 6)
+    matches
+      (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _
+    | (#x, #y) → (!#c & $c') ::
+      (#y, #z) → #c' ::
+      (#z, #x) → #c' :: _
+    as multiset (Sym2 (Fin 6) → Color)
   := by
-  -- Color は 2 値、ターゲットは 3 値なので 2^3 = 8 通りを全数検査。
+  -- 実質は内部 3 辺の色 × c の 2⁴ = 16 通りの全数検査。
   -- decidable_eq Color から各 # 判定は決定可能。
   decide
 
@@ -47,7 +79,7 @@ lemma two_color_exhaustive (c : Color) ((x, y, z) : (Color, Color, Color))
 -- ---------------------------------------------------------------
 -- 主定理: Ramsey R(3,3) = 6
 -- ---------------------------------------------------------------
--- 「K_6 の 2 色塗りには必ず単色三角形が存在する」を、
+-- 「K₆ の 2 色塗りには必ず単色三角形が存在する」を、
 -- 補助定義 monochromatic を経由せずパターンで直接表現する:
 --
 --   ($x, $y) → $c         …… 1 辺目: 端点 x, y、色 c
@@ -55,7 +87,9 @@ lemma two_color_exhaustive (c : Color) ((x, y, z) : (Color, Color, Color))
 --   (#z, #x) → #c         …… 3 辺目: z と x を結び、同色 c → 三角形成立
 --
 -- ここに自動的に含まれる主張 (pwl-ramsey.md §「自動導出」参照):
---   - x, y, z は互いに異なる (Sym2 自己ループ非存在 + multiset ::)
+--   - x, y, z は互いに異なる (Sym2 matcher のペアパターンが自己ループに
+--     マッチしないことから。1 辺目より x ≠ y、2 辺目より y ≠ z、
+--     3 辺目より z ≠ x)
 --   - 3 辺は三角形を構成する
 --   - 3 辺は同色 (非線形 #c)
 
@@ -63,24 +97,29 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
     matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
     as multiset (Sym2 (Fin 6) → Color)
   := by
-  -- ★ 外側: edge から「v に接続する同色 3 辺」を取り出す。
-  --   ここで使う v ∈ Fin 6 は任意でよい (定理は edge に対して全称) が、
-  --   v を fz と固定してもよい。今は v 自体もパターン変数として束縛する。
+  let v : Fin 6 := fz
+
+  -- ★ 外側: 固定した v から出る同色 3 辺を、edge 自体から直接取り出す。
   match edge as multiset (Sym2 (Fin 6) → Color) with
-  | ($v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ ⇒
+  | (#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ ⇒
 
-      -- ★ 内側: 残った辺のうち、x-y, y-z, x-z のいずれかが
-      --   色 c なら単色三角形 (v を頂点とする) が成立。
-      --   3 辺いずれも c で無いなら、x-y, y-z, x-z 自身が同色三角形を成す
-      --   (反対色は 1 つだけなので)。
+      -- ★ 内側: x, y, z の内部辺を、同じ edge の multiset として
+      --   順序なしに観察する。
       match edge as multiset (Sym2 (Fin 6) → Color) with
-      | (#x, #y) → #c ⇒ exact ⟨v, x, c, y⟩
-      | (#y, #z) → #c ⇒ exact ⟨v, y, c, z⟩
-      | (#x, #z) → #c ⇒ exact ⟨v, x, c, z⟩
-      | (#x, #y) → $c' :: (#y, #z) → #c' :: (#x, #z) → #c' :: _ ⇒
-          exact ⟨x, y, c', z⟩
-      exhaustive by
-        two_color_exhaustive c
-          (edge (mk x y)) (edge (mk y z)) (edge (mk x z))
 
-  exhaustive by pigeonhole_edges edge
+      -- 内部辺のどれか 1 本が外側と同じ色 c なら、
+      -- 外側のマッチから v-p, v-q も色 c なので v, p, q が単色三角形。
+      | (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _ ⇒
+          exact ⟨v, p, c, q⟩
+
+      -- 内部辺に色 c が無ければ、2 色性から内部 3 辺はすべて同じ
+      -- 反対色 c' でそろい、x, y, z 自身が単色三角形を成す。
+      | (#x, #y) → (!#c & $c') ::
+        (#y, #z) → #c' ::
+        (#z, #x) → #c' :: _ ⇒
+          exact ⟨x, y, c', z⟩
+
+      exhaustive by
+        triangle_two_color_exhaustive edge c x y z
+
+  exhaustive by pigeonhole_edges_at edge v

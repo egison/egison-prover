@@ -161,6 +161,8 @@ theorem schur_2 (c : {1..5} → Color)
     exhaustive by color_dichotomy col (c 2)
 ```
 
+注: ここの `exhaustive by` は、**色の値**（`c 2`, `c 3` など）上の補題（パターン `#col | #col'`）で、**関数 `c`** 上の match 腕（パターン `2 → #col :: _` など）の網羅性を正当化している。対象も matcher も異なるため、overview.md の `exhaustive by` 規則（補題と腕のパターンの字面一致）をそのまま適用することはできず、「キー `k` での射影マッチ `k → P :: _` と値マッチ `P` on `c k` の同値」というアダプタ規則（lifting）を暗黙に使っている。この規則の形式化は未了（review_20260612.md B-2）。pwl-ramsey の改訂版が補題側を edge の multiset に揃えて字面一致を回復したのと同様に、補題側を関数 `c` 上のパターンに揃える書き換えも検討に値する。
+
 #### パターン変数間の関係の自動導出
 
 pwl-ramsey と同じ原理が働く。各 `match` の腕にマッチした時点で、パターン構造から関係が自動導出される：

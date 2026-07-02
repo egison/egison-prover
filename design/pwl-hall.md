@@ -40,7 +40,7 @@ theorem hall (G : BipartiteGraph X Y) (h : hallCondition G) :
 Hall 条件の否定は「**ある k に対して k+1 個の左頂点が k 個の右頂点しか持たない**」である。これを「悪い構造の不在」として直接書く：
 
 ```
-HallCondition (E : multiset (X × Y)) ≡
+HallCondition (E : Multiset (X × Y)) ≡
     ¬ ( X matches $x₁ :: $x₂ :: ... :: $xₖ₊₁ :: _
       ∧ Y matches $y₁ :: $y₂ :: ... :: $yₖ :: _
       ∧ ¬ ( E matches ((#x₁ | #x₂ | ... | #xₖ₊₁),
@@ -82,10 +82,12 @@ G matches $X' ⤳ $Y'    as bipartite_graph X Y
 これを使うと Hall 条件は：
 
 ```
-HallCondition (G : bipartite_graph X Y) ≡
+HallCondition (G : BipartiteGraph X Y) ≡
     ¬ ( G matches $X' ⤳ $Y'   where |X'| > |Y'|
         as bipartite_graph X Y )
 ```
+
+（`BipartiteGraph X Y` は**型**、`bipartite_graph X Y` はその型に対する **matcher**。signature には型を、`as` 節には matcher を書く。）
 
 **2行に縮む**。素朴版の三重否定・可変長・or/and-not 結合がすべて matcher 内部に押し込まれる。
 
@@ -121,9 +123,9 @@ G matches $f    as matching_of (bipartite_graph X Y)
 これにより Hall の定理の主張は：
 
 ```
-theorem hall (G : bipartite_graph X Y) (h : HallCondition G)
+theorem hall (G : BipartiteGraph X Y) (h : HallCondition G)
     matches $f
-    as matching_of G
+    as matching_of (bipartite_graph X Y)
 ```
 
 Lean 版の `∃ f : X → Y, Function.Injective f ∧ ∀ x, (x, f x) ∈ G.edge` が、pattern 一個に吸収される。
@@ -136,7 +138,7 @@ Hall の定理を **適用** する場面でも、同じ pattern が match の�
 
 ```
 -- 例：完全マッチング f を取り出して使う
-match G as matching_of G with
+match G as matching_of (bipartite_graph X Y) with
 | $f => 
     -- ここで f : X → Y は完全マッチングとして使える
     ...
@@ -145,8 +147,8 @@ exhaustive by hall G h_hall
 
 pwl-ramsey の `pigeonhole_edges`、pwl-schur の `color_dichotomy` と同じ構造：
 
-- **補題側**: `matches $f as matching_of G`（Hall の主張）
-- **適用側**: `match G as matching_of G with | $f => ...`（同じ pattern を destructure）
+- **補題側**: `matches $f as matching_of (bipartite_graph X Y)`（Hall の主張）
+- **適用側**: `match G as matching_of (bipartite_graph X Y) with | $f => ...`（同じ pattern を destructure）
 - **接続子**: `exhaustive by hall G h_hall`
 
 「主張と適用が同じパターン言語に閉じる」という研究プログラムの核心が、Hall でも具体化される。
@@ -160,7 +162,7 @@ pwl-ramsey の `pigeonhole_edges`、pwl-schur の `color_dichotomy` と同じ構
 | | Lean 4 | パターンマッチ指向（素朴版） | パターンマッチ指向（matcher 経由） |
 |---|---|---|---|
 | Hall 条件の定義 | `∀ S : Finset X, S.card ≤ (neighborhood G S).card` | 三重否定 + 可変長パターン | `¬ (G matches $X' ⤳ $Y' where ...)`（2行） |
-| 完全マッチングの定義 | `∃ f, Injective f ∧ ∀ x, (x, f x) ∈ E` | （素朴版なし） | `G matches $f as matching_of G` |
+| 完全マッチングの定義 | `∃ f, Injective f ∧ ∀ x, (x, f x) ∈ E` | （素朴版なし） | `G matches $f as matching_of (bipartite_graph X Y)` |
 | 補助述語 | `neighborhood`、`hallCondition`、`perfectMatching` | （多数のメタ的展開） | 0（すべて matcher 内部） |
 | 高階の量化 | `∀ S : Finset X` | 可変長 cons でパターン化 | matcher 内部に隠蔽 |
 

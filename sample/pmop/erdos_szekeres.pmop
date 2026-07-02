@@ -25,11 +25,17 @@
 --        減少部分列: [2,1], [4,1], [4,3] も長さ 2 まで)。
 --   ここに 5 番目を加えると、それをどこに置いても escape できない。
 --
--- 本ファイルで形式化するのは (r, s) = (3, 3) のケース:
+-- 本ファイルで形式化するのは (r, s) = (3, 3) のケースの有限版:
 --
---   ∀ seq : Fin 5 → ℤ, Injective seq →
+--   ∀ seq : Fin 5 → Fin 5, Injective seq →
 --     (∃ i₁ < i₂ < i₃, seq i₁ < seq i₂ < seq i₃)
 --   ∨ (∃ i₁ < i₂ < i₃, seq i₁ > seq i₂ > seq i₃)
+--
+-- 一般の ℤ / ℝ 列に対する主張は、「互いに異なる 5 項」の単調部分列の
+-- 存在が値の相対順序 (順序型) のみで決まることから、injective な
+-- seq : Fin 5 → Fin 5 (= 置換、120 通り) に帰着できる。
+-- この帰着補題 (order-type reduction) は未形式化 (review_20260612.md)。
+-- 値域を無限 (Int 等) のままにすると decide は正当化されないことに注意。
 --
 -- ===============================================================
 -- pattern-match-oriented で書くと
@@ -48,7 +54,7 @@
 --     (_ ++ (_ → $x)
 --       :: _ ++ (_ → $y & ?(y < x))
 --       :: _ ++ (_ → $z & ?(z < y)) :: _)
---   as list (Fin 5 → Int)
+--   as list (Fin 5 → Fin 5)
 --
 -- 読み下し (増加列の場合):
 --   - 列のどこかから 1 つ目の値 x を取る
@@ -61,33 +67,32 @@
 import prelude
 
 -- ---------------------------------------------------------------
--- 補助: 整数比較 (Nat で代用)
+-- 補助: 値域は有限に取る (Fin 5)
 -- ---------------------------------------------------------------
--- 本来は Int / ℤ だが、prelude には Nat しかないので Nat で代用。
--- 「互いに異なる」前提があれば Nat でも単調性議論は同じ。
+-- 値域を ℤ / ℝ のような無限型にすると decide による全数検査が
+-- 正当化できない。「互いに異なる」前提の下では単調性の議論は
+-- 値の相対順序のみで決まるので、値域を Fin 5 に取った有限版で
+-- 一般性を失わない (帰着補題は上記の通り未形式化)。
 
-primitive cons Int  : Type        -- 暫定。Nat に差し替えても OK。
-decidable_eq Int
-
--- Bool を返す述語
-def ltInt : Int → Int → Bool := primitive
-def gtInt : Int → Int → Bool := primitive
+-- Bool を返す比較述語 (Fin n の構造順: fz < fs fz < ...)
+def ltFin : {n : Nat} → Fin n → Fin n → Bool := primitive
+def gtFin : {n : Nat} → Fin n → Fin n → Bool := primitive
 
 -- ---------------------------------------------------------------
 -- 主定理: Erdős–Szekeres (r=s=3 の場合)
 -- ---------------------------------------------------------------
 
 theorem erdos_szekeres_3_3
-    (seq      : Fin 5 → Int)
+    (seq      : Fin 5 → Fin 5)
     (distinct : Injective seq)
     matches
       (_ ++ (_ → $x)
-        :: _ ++ (_ → $y & ?(ltInt x y))
-        :: _ ++ (_ → $z & ?(ltInt y z)) :: _)
+        :: _ ++ (_ → $y & ?(ltFin x y))
+        :: _ ++ (_ → $z & ?(ltFin y z)) :: _)
     | (_ ++ (_ → $x)
-        :: _ ++ (_ → $y & ?(gtInt x y))
-        :: _ ++ (_ → $z & ?(gtInt y z)) :: _)
-    as list (Fin 5 → Int)
+        :: _ ++ (_ → $y & ?(gtFin x y))
+        :: _ ++ (_ → $z & ?(gtFin y z)) :: _)
+    as list (Fin 5 → Fin 5)
   := by
   -- 古典的証明 (Erdős–Szekeres の鳩の巣論法):
   --   各位置 i ∈ Fin 5 に対し、ペア (inc i, dec i) を割り当てる。
@@ -103,11 +108,12 @@ theorem erdos_szekeres_3_3
   --   よって inc i ≥ 3 または dec i ≥ 3 となる位置 i が存在し、
   --   そこから長さ 3 の単調部分列が取れる。
   --
-  -- pattern-match-oriented では、有限・decidable_eq の前提下で
-  -- 全数検査に帰着するため decide で閉じる:
-  --   - Fin 5 の置換は 5! = 120 通り (distinct seq の同型類)
+  -- pattern-match-oriented では、定義域・値域とも有限 (Fin 5 → Fin 5)
+  -- かつ decidable_eq なので全数検査に帰着し、decide で閉じる:
+  --   - injective な seq : Fin 5 → Fin 5 は置換で 5! = 120 通り
   --   - 各置換について list matcher 上で増加 3 連鎖 / 減少 3 連鎖を
   --     全数検査で探索可能
+  -- (値域を有限に取ったことで初めて decide が正当化される点に注意)
   decide
 
 -- ---------------------------------------------------------------
@@ -116,10 +122,10 @@ theorem erdos_szekeres_3_3
 -- 「長さ 2 の異なる 2 数列には ↗ または ↘ がある」
 -- (decidable_eq + 三分律から自明。warm-up 用)
 
-lemma es_2_2 (seq : Fin 2 → Int) (distinct : Injective seq)
-    matches  ((_ → $x) :: (_ → $y & ?(ltInt x y)) :: _)
-           | ((_ → $x) :: (_ → $y & ?(gtInt x y)) :: _)
-    as list (Fin 2 → Int)
+lemma es_2_2 (seq : Fin 2 → Fin 2) (distinct : Injective seq)
+    matches  ((_ → $x) :: (_ → $y & ?(ltFin x y)) :: _)
+           | ((_ → $x) :: (_ → $y & ?(gtFin x y)) :: _)
+    as list (Fin 2 → Fin 2)
   := by decide
 
 -- ---------------------------------------------------------------
@@ -133,6 +139,8 @@ lemma es_2_2 (seq : Fin 2 → Int) (distinct : Injective seq)
 --       false なら no-match で枝落ち (cut の意味論ではなく、純粋にこの枝の失敗)。
 -- (c) decide tactic (Schur と共通):
 --       有限・decidable_eq の前提下で命題をカーネル評価で閉じる。
+--       本ファイルでは値域を Fin 5 に取ったことで前提が満たされる
+--       (無限の Int / ℤ のままでは decide は適用不可)。
 --
 -- 補足:
 --   list matcher での「位置の前後関係」は、`_ ++ p :: rest` の prefix
