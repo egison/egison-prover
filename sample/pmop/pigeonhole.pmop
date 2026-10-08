@@ -8,12 +8,13 @@
 -- パターンマッチ指向での表現:
 --   関数 f を multiset (Fin (suc n) → Fin n) として見たとき、
 --   (入力, 出力) の組のうち、出力が同じ 2 組を取り出せる。
---   ($x → $y) :: (#? → #y) :: _ — 入力位置は any、出力は同じ #y。
+--   ($x → $y) :: ($z → #y) :: _ — 入力位置 z を束縛し、出力は同じ #y。
 --   multiset の :: 規則から $x と「次の :: で取り出した要素の入力」は別物。
 --
 -- Lean 4 でこの一般形を素直に書くと Fintype + Finset.card 不等式 + by_contra
 -- + omega が要るが、pattern-match-oriented では multiset の cons の意味
--- そのものが「異なる要素」「カウント保存」を担うので主張がそのまま証明になる。
+-- が、重複のない関数グラフ上の「異なる入力」を主張に取り込む。
+-- 数え上げによる存在証明は、別途補題として構成する必要がある。
 
 import prelude
 
@@ -43,7 +44,9 @@ theorem pigeonhole (n : Nat) (f : Fin (suc n) → Fin n)
   match f as multiset (Fin (suc n) → Fin n) with
   | ($x → $y) :: ($z → #y) :: _ ⇒
       exact ⟨x, y, z⟩
-  exhaustive by pigeon_step n
+  -- TODO: pigeon_step の第2選択肢が不可能であることを証明して除去し、
+  -- 衝突パターンだけの matches 命題を得る必要がある (design/review_20261008.md)。
+  exhaustive by pigeon_step n f
 
 
 -- ---------------------------------------------------------------

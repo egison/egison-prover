@@ -64,6 +64,7 @@ lemma pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6)
 lemma triangle_two_color_exhaustive
     (edge : Sym2 (Fin 6) → Color)
     (c : Color) (x y z : Fin 6)
+    (hxy : x ≠ y) (hyz : y ≠ z) (hzx : z ≠ x)
     matches
       (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _
     | (#x, #y) → (!#c & $c') ::
@@ -121,5 +122,6 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 
       exhaustive by
         triangle_two_color_exhaustive edge c x y z
+          ‹x ≠ y› ‹y ≠ z› ‹z ≠ x›
 
   exhaustive by pigeonhole_edges_at edge v

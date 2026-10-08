@@ -18,8 +18,9 @@ variable {X Y : Type} [Fintype X] [Fintype Y] [DecidableEq X] [DecidableEq Y]
 structure BipartiteGraph (X Y : Type) where
   edge : Set (X × Y)
 
-def neighborhood (G : BipartiteGraph X Y) (S : Finset X) : Finset Y :=
-  Finset.univ.filter (fun y => ∃ x ∈ S, (x, y) ∈ G.edge)
+noncomputable def neighborhood (G : BipartiteGraph X Y) (S : Finset X) : Finset Y := by
+  classical
+  exact Finset.univ.filter (fun y => ∃ x ∈ S, (x, y) ∈ G.edge)
 
 def hallCondition (G : BipartiteGraph X Y) : Prop :=
   ∀ S : Finset X, S.card ≤ (neighborhood G S).card
@@ -47,10 +48,15 @@ HallCondition (E : Multiset (X × Y)) ≡
                        ($y & !#y₁ & !#y₂ & ... & !#yₖ)) :: _ ) )
 ```
 
+この式は、k と選んだ頂点列を存在量化する数学的な略記である。
+X と Y を照合対象に書いた箇所は、それぞれの全頂点を重複なく列挙した多重集合を指す。
+独立した `matches` 命題の中の束縛を後続の命題から直接参照する規則はまだないため、
+正式な言語構文にする際は、量化と束縛の有効範囲を明示する必要がある。
+
 ### 読み解き
 
 - 最外の `¬ (... ∧ ... ∧ ¬ ...)`: 「以下を満たす選び方は **存在しない**」
-- `X matches $x₁ :: ... :: $xₖ₊₁ :: _`: X から k+1 個の相異なる左頂点を取る（multiset `::` の挙動より相異性が自動）
+- `X matches $x₁ :: ... :: $xₖ₊₁ :: _`: X から k+1 個の相異なる左頂点を取る（X の全頂点を重複なく列挙した多重集合に対する `::` の挙動より）
 - `Y matches $y₁ :: ... :: $yₖ :: _`: Y から k 個の相異なる右頂点を取る
 - `¬ E matches ((#x₁ | ... | #xₖ₊₁), ($y & !#y₁ & ... & !#yₖ)) :: _`:
   - 取った x たちのいずれか（`(#x₁ | ... | #xₖ₊₁)` の or パターン）から、
@@ -62,7 +68,7 @@ HallCondition (E : Multiset (X × Y)) ≡
 ### 複雑さの源
 
 1. **可変長パターン** `x₁ :: ... :: xₖ₊₁`：パラメータ k に依存する長さの列挙。pattern syntax の正式な構成要素として「可変長 cons 連鎖」を導入するか、メタ的に展開する必要がある。
-2. **三重否定**：`¬ (... ∧ ¬ ...)` という構造はド・モルガンで畳めば「∀ x's, ∀ y's, ∃ edge」と読めるが、pattern として書くと読みづらい。
+2. **入れ子の否定**：`¬ (... ∧ ¬ ...)` という構造はド・モルガンで畳めば「∀ x's, ∀ y's, ∃ edge」と読めるが、pattern として書くと読みづらい。
 3. **or パターンと and-not 結合**：`#x₁ | ... | #xₖ₊₁` と `$y & !#y₁ & ... & !#yₖ` の k 依存の連鎖が二重に出現。
 
 このまま論文 statement に置くのは厳しい。
@@ -87,9 +93,9 @@ HallCondition (G : BipartiteGraph X Y) ≡
         as bipartite_graph X Y )
 ```
 
-（`BipartiteGraph X Y` は**型**、`bipartite_graph X Y` はその型に対する **matcher**。signature には型を、`as` 節には matcher を書く。）
+（`BipartiteGraph X Y` は**型**、`bipartite_graph X Y` はその型に対する **matcher**。型注釈には型を、`as` 節には matcher を書く。）
 
-**2行に縮む**。素朴版の三重否定・可変長・or/and-not 結合がすべて matcher 内部に押し込まれる。
+**2行に縮む**。素朴版の入れ子の否定・可変長・or/and-not 結合がすべて matcher 内部に押し込まれる。
 
 ### Matcher 内部での実装
 
@@ -112,7 +118,7 @@ matcher bipartite_graph X Y where
 
 ### 完全マッチングのパターン化
 
-同じく `bipartite_graph` matcher に `matching_of` パターンコンストラクタを用意する：
+`bipartite_graph` matcher から、完全マッチングを取り出す matcher を作る変換 `matching_of` を用意する：
 
 ```
 G matches $f    as matching_of (bipartite_graph X Y)
@@ -145,7 +151,7 @@ match G as matching_of (bipartite_graph X Y) with
 exhaustive by hall G h_hall
 ```
 
-pwl-ramsey の `pigeonhole_edges`、pwl-schur の `color_dichotomy` と同じ構造：
+pwl-ramsey の `pigeonhole_edges_at`、pwl-schur の `color_dichotomy` と同じ構造：
 
 - **補題側**: `matches $f as matching_of (bipartite_graph X Y)`（Hall の主張）
 - **適用側**: `match G as matching_of (bipartite_graph X Y) with | $f => ...`（同じ pattern を destructure）
@@ -161,14 +167,14 @@ pwl-ramsey の `pigeonhole_edges`、pwl-schur の `color_dichotomy` と同じ構
 
 | | Lean 4 | パターンマッチ指向（素朴版） | パターンマッチ指向（matcher 経由） |
 |---|---|---|---|
-| Hall 条件の定義 | `∀ S : Finset X, S.card ≤ (neighborhood G S).card` | 三重否定 + 可変長パターン | `¬ (G matches $X' ⤳ $Y' where ...)`（2行） |
+| Hall 条件の定義 | `∀ S : Finset X, S.card ≤ (neighborhood G S).card` | 入れ子の否定 + 可変長パターン | `¬ (G matches $X' ⤳ $Y' where ...)`（2行） |
 | 完全マッチングの定義 | `∃ f, Injective f ∧ ∀ x, (x, f x) ∈ E` | （素朴版なし） | `G matches $f as matching_of (bipartite_graph X Y)` |
 | 補助述語 | `neighborhood`、`hallCondition`、`perfectMatching` | （多数のメタ的展開） | 0（すべて matcher 内部） |
 | 高階の量化 | `∀ S : Finset X` | 可変長 cons でパターン化 | matcher 内部に隠蔽 |
 
 ### 設計上の判断
 
-- **素朴版は statement として論文に出すには複雑すぎる**。可変長パターンと三重否定の組み合わせは読者に負担をかける。
+- **素朴版は statement として論文に出すには複雑すぎる**。可変長パターンと入れ子の否定の組み合わせは読者に負担をかける。
 - **matcher 経由版は読みやすいが、新規 matcher の設計コストが高い**。`⤳` の意味論と健全性を別途厳密化する必要がある。
 - **論文 narrative**: 素朴版を「naive 表現」として一度示し、その複雑さを動機として bipartite_graph matcher を導入する流れが説得力を持つ。「matcher 抽象が statement を救う」という主張の具体例になる。
 
@@ -192,9 +198,9 @@ matchAll G as bipartite_graph X Y with
 ### 計算量
 
 - `⤳` の判定：左 X' を固定すると N_G(X') は決定論的に計算でき、Y' ⊇ N_G(X') の選び方は 2^|Y \ N(X')| 通り。X' の選び方が 2^|X| 通りで、全体としては指数的だが有限。
-- `matching_of`：二部マッチングは Hopcroft–Karp で O(E √V)。判定は多項式。
+- `matching_of`：完全マッチングの存在判定と1個の構成には、Hopcroft–Karp の O((|E|+|V|)√|V|) のアルゴリズムを使える（V は頂点集合。出典：[Hopcroft と Karp の論文](https://epubs.siam.org/doi/10.1137/0202019)）。すべての完全マッチングを `matchAll` で列挙するコストは、出力するマッチングの個数にも依存する。
 
-健全性の議論：`matcher bipartite_graph` の定義が正確に `⤳` と `matching_of` のセマンティクスを実現しているかを別途証明する必要がある。
+健全性の議論：`matcher bipartite_graph` の定義が正確に `⤳` パターンと `matching_of` による matcher の意味論を実現しているかを別途証明する必要がある。
 
 ### Sym2 / multiset matcher との関係
 
@@ -204,8 +210,8 @@ matchAll G as bipartite_graph X Y with
 
 ## まとめ
 
-- Hall 条件の素朴なパターン化は可変長と三重否定で複雑化する
-- `bipartite_graph` matcher と `⤳` / `matching_of` パターンコンストラクタを導入すると、statement が劇的に簡潔になる
+- Hall 条件の素朴なパターン化は可変長と入れ子の否定で複雑化する
+- `bipartite_graph` matcher、`⤳` パターンコンストラクタ、`matching_of` による matcher の変換を導入すると、statement が劇的に簡潔になる
 - Hall の定理の主張・適用は、ramsey / schur と同じく「pattern 一個」に閉じる
 - 論文 narrative としては、**「素朴版で複雑さを示し、matcher 抽象で救う」** という流れが効く
 

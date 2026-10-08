@@ -17,7 +17,7 @@
 ### Lean 4 での定義
 
 ```lean
-variable {Σ : Type} [DecidableEq Σ]
+variable {Q Σ : Type} [Fintype Q] [DecidableEq Q] [DecidableEq Σ]
 
 structure DFA (Q Σ : Type) [Fintype Q] [DecidableEq Q] where
   step : Q → Σ → Q
@@ -34,13 +34,18 @@ def IsPumpingDecomposition (M : DFA Q Σ) (w x y z : List Σ) (n : ℕ) : Prop :
   w = x ++ y ++ z
   ∧ (x ++ y).length ≤ n
   ∧ y.length ≥ 1
-  ∧ ∀ k, M.accepts (x ++ List.replicate k y ++ z)
+  ∧ ∀ k, M.accepts (x ++ (List.replicate k y).flatten ++ z)
 
 theorem pumping_lemma (M : DFA Q Σ) (w : List Σ)
     (h_long : w.length ≥ Fintype.card Q)
     (h_acc : M.accepts w) :
     ∃ x y z, IsPumpingDecomposition M w x y z (Fintype.card Q)
 ```
+
+`y^k` は語 `y` を k 回連結した語である。Lean では
+`(List.replicate k y).flatten` と書く。`List.replicate k y` の型は
+`List (List Σ)` なので、そのまま `x : List Σ` と連結することはできない
+（[Lean のリストの定義](https://lean-lang.org/doc/reference/latest/Basic-Types/Linked-Lists/)）。
 
 主張内に `∃ x y z`（三重存在量化）、`= ... ∧ ... ∧ ... ∧ ∀ k, ...`（四項連言＋内側全称）が並ぶ。補助述語 `IsPumpingDecomposition` に切り出しても、その内部で同じ複雑さが現れる。
 
@@ -49,14 +54,14 @@ theorem pumping_lemma (M : DFA Q Σ) (w : List Σ)
 pumping lemma の主張は「組合せ的核（走行列内の鳩の巣）」と「pumping 性（∀ k の受理保存）」の二層に分かれる。pattern で直接表現できるのは前者である：
 
 ```egison
--- 組合せ的核: 走行列の最初の |Q|+1 ステップに同状態の 2 回訪問がある
+-- 組合せ的核: 走行列の最初の |Q|+1 個の状態に同状態の 2 回訪問がある
 theorem run_repeats_state (M : DFA Q Σ) (w : List Σ)
     (h_long : |w| ≥ |Q|) (h_acc : M ⊢ w)
     : (M.run w).take (|Q| + 1)  matches  _ ++ $q :: _ ++ #q :: _
                                   as list Q
 ```
 
-`matches` は「`M.run(w)` の最初の |Q|+1 ステップに、同じ状態が2回出現する箇所が必ずある」と主張する。これは鳩の巣原理の直接表現。target は派生値 `(M.run w).take (|Q| + 1)` であり、`take (|Q| + 1)` を **target 側**で取ることで `|xy| ≤ |Q|` が matcher への特別な制約なしに従う（matcher は通常の `list Q`）。
+`matches` は「`M.run(w)` の最初の |Q|+1 個の状態に、同じ状態が2回出現する箇所が必ずある」と主張する。これは鳩の巣原理の直接表現。target は派生値 `(M.run w).take (|Q| + 1)` であり、`take (|Q| + 1)` を **target 側**で取ることで `|xy| ≤ |Q|` が matcher への特別な制約なしに従う（matcher は通常の `list Q`）。
 
 **∀ k の pumping 性は `matches` 命題には含まれない。** `matches P as M` は「対象がこの構造に分解できる」という存在命題であり、「分解の構成要素が任意の k で受理を保つ」という全称命題はその外側にある。pumping lemma 本体は、核定理と DFA の loop 反復補題から**系**として導く（§B）。
 
@@ -64,7 +69,7 @@ theorem run_repeats_state (M : DFA Q Σ) (w : List Σ)
 
 - **`∃ x y z`**: list pattern `_ ++ $q :: _ ++ #q :: _` の split に吸収
 - **`w = x ++ y ++ z`**: pattern の構造そのもの（list の3分割）
-- **`|y| ≥ 1`**: 二つの `::` の間に少なくとも1要素が挟まる構造から自動
+- **`|y| ≥ 1`**: 二つの `::` が異なる位置の状態を消費するため、対応する入力区間は少なくとも1文字を含む
 - **`|xy| ≤ |Q|`**: target を `take (|Q| + 1)` に取ることから自動
 - **同状態への2回訪問**: 非線形パターン `#q`（Ramsey の `#c` と同型）
 - **位置の前後関係 `i < j`**: list の順序構造から自動（WLOG 議論不要）
@@ -76,7 +81,7 @@ theorem run_repeats_state (M : DFA Q Σ) (w : List Σ)
 
 x, y, z は独立した存在変数ではなく、走行列の prefix / middle / suffix から派生する定義。具体的には、pattern マッチで走行列が `prefix_states ++ [q] ++ middle_states ++ [q] ++ suffix_states` の形に分かれたとき、x = w[0..|prefix_states|]、y = w[|prefix_states|..|prefix_states|+|middle_states|+1]、z = w[残り]。
 
-Lean 4 版では (1) `∃ x y z` の明示、(2) 各連言の個別証明、(3) `i < j` の `hij` としての保持が必要。パターンマッチ指向版ではこれらが pattern の構造と matcher の意味論に吸収され、(4) `replicate k y` による pumping の帰納証明だけが、両者共通の補題 `dfa_loop_iteration` として残る。
+Lean 4 版では (1) `∃ x y z` の明示、(2) 各連言の個別証明、(3) `i < j` の `hij` としての保持が必要。パターンマッチ指向版ではこれらが pattern の構造と matcher の意味論に吸収され、(4) `(List.replicate k y).flatten` による pumping の帰納証明だけが、両者共通の補題 `dfa_loop_iteration` として残る。
 
 ---
 
@@ -87,7 +92,7 @@ Lean 4 版では (1) `∃ x y z` の明示、(2) 各連言の個別証明、(3) 
 ```lean
 -- 鳩の巣原理 (list 上): 長さが値域より大きい list の中に重複する要素が
 -- 順序付きで存在する
-lemma pigeonhole_list (xs : List Q) [Fintype Q]
+lemma pigeonhole_list (xs : List Q)
     (h : xs.length > Fintype.card Q) :
     ∃ i j : Fin xs.length, i < j ∧ xs.get i = xs.get j := by
   by_contra h_neq
@@ -108,7 +113,7 @@ lemma dfa_loop_iteration (M : DFA Q Σ) (x y z : List Σ) (q : Q)
     (h_x : (M.run x).getLast (by simp [DFA.run]) = q)
     (h_y : List.foldl M.step q y = q)
     (h_acc : M.accepts (x ++ y ++ z)) :
-    ∀ k, M.accepts (x ++ List.replicate k y ++ z) := by
+    ∀ k, M.accepts (x ++ (List.replicate k y).flatten ++ z) := by
   intro k
   induction k with
   | zero => simp; exact ... -- y を消した版が受理されることを示す
@@ -145,7 +150,7 @@ theorem pumping_lemma (M : DFA Q Σ) (w : List Σ)
     have : (i : ℕ) < j := hij
     simp [y, List.length_take]
     omega
-  · -- ∀ k, M.accepts (x ++ replicate k y ++ z)
+  · -- ∀ k, M.accepts (x ++ (List.replicate k y).flatten ++ z)
     apply dfa_loop_iteration M x y z (states.get i)
     · -- run x の最終状態が states.get i に等しい
       ...
@@ -180,12 +185,12 @@ lemma dfa_loop_iteration (M : DFA Q Σ) (x y z : List Σ) (q : Q)
   induction k <;> simp [DFA.step_append, ...]
 ```
 
-`pigeonhole_list` は pwl-ramsey の `pigeonhole_edges` に対応する補助補題。違いは matcher：
+`pigeonhole_list` は pwl-ramsey の `pigeonhole_edges_at` に対応する補助補題。違いは matcher：
 
-- `pigeonhole_edges`: **multiset** 上の鳩の巣（v からの5辺 → 同色3辺以上）
+- `pigeonhole_edges_at`: **multiset** 上の鳩の巣（v からの5辺 → 同色3辺以上）
 - `pigeonhole_list`: **list** 上の鳩の巣（|Q|+1 要素 → 同要素が順序付きで2回）
 
-`dfa_loop_iteration` は pwl-ramsey の `two_color_exhaustive` や pwl-schur の `color_dichotomy` と同じ構造的役割：pattern マッチで吸収しきれない部分（ここでは「loop の繰り返しが受理性を保つ」という DFA 性質）を補題として外出しする。ただしあちらが `exhaustive by` で参照される網羅性補題であるのに対し、こちらは系の `exact` 内で適用される通常の補題である点は異なる。
+`dfa_loop_iteration` は pwl-ramsey の `triangle_two_color_exhaustive` や pwl-schur の `color_dichotomy` と同じ構造的役割：pattern マッチで吸収しきれない部分（ここでは「loop の繰り返しが受理性を保つ」という DFA 性質）を補題として外出しする。ただしあちらが `exhaustive by` で参照される網羅性補題であるのに対し、こちらは系の `exact` 内で適用される通常の補題である点は異なる。
 
 ### 証明
 
@@ -219,7 +224,7 @@ corollary pumping_lemma (M : DFA Q Σ) (w : List Σ)
 
 核定理は鳩の巣補題の単一適用、系は match 1 腕 + `dfa_loop_iteration` で閉じる。pwl-ramsey / pwl-schur と同じ「鳩の巣＋外出し補題」の二段構成。
 
-系の match 腕 `$pre ++ $q :: $mid ++ #q :: _` は、核定理の主張パターン `_ ++ $q :: _ ++ #q :: _` のワイルドカード `_` を capture 変数 `$pre` / `$mid` に細分しただけであり、マッチの成否は変わらない。よって `exhaustive by run_repeats_state M w h_long h_acc` で網羅性が与えられる（この「`_` → `$x` 細分」を許すアダプタ規則の形式化は今後の課題。review_20260612.md B-2）。**補題の主張パターンと適用側の match 腕の対応**という pwl-* の核心構造（`pigeonhole_edges_at` ⇄ ramsey 主定理）が、ここでも成立する。
+系の match 腕 `$pre ++ $q :: $mid ++ #q :: _` は、核定理の主張パターン `_ ++ $q :: _ ++ #q :: _` のワイルドカード `_` をパターン変数 `$pre` / `$mid` に細分しただけであり、マッチの成否は変わらない。よって `exhaustive by run_repeats_state M w h_long h_acc` で網羅性が与えられる（この「`_` → `$x` 細分」を許すアダプタ規則の形式化は今後の課題。review_20260612.md B-2）。**補題の主張パターンと適用側の match 腕の対応**という pwl-* の核心構造（`pigeonhole_edges_at` ⇄ ramsey 主定理）が、ここでも成立する。
 
 `run_ends_at` / `loops_back` は「x を読み終えた状態が q」「y を読むと q に戻る」という事実で、走行列の分解位置と `$q` / `#q` のマッチから導出される（matcher 意味論からの自動導出の対象。詳細化は今後の課題）。
 
@@ -228,8 +233,8 @@ corollary pumping_lemma (M : DFA Q Σ) (w : List Σ)
 list pattern `_ ++ $q :: _ ++ #q :: _` がマッチした時点で、以下が自動導出される：
 
 1. **同状態への2回訪問**: 非線形 `#q` から、走行列の異なる2位置 i, j で同じ状態 q を訪れる。
-2. **位置の前後関係 `i < j`**: list の構造から自動。最初の `_ ++` で消費された prefix の長さ = i、二つ目の `_ ++` 開始点 = j。WLOG 議論は不要。
-3. **`|y| = j - i ≥ 1`**: 二つの `::` の間に必ず middle list があり、`($q ::)` と `(#q ::)` の間隔は最低1。よって y は非空。
+2. **位置の前後関係 `i < j`**: list の構造から自動。最初の `_ ++` で消費された prefix の長さ = i、二つ目の `#q ::` が消費する状態の位置 = j = i + |mid| + 1。WLOG 議論は不要。
+3. **`|y| = j - i ≥ 1`**: 中間のリストは空でもよいが、二つの `::` が消費する状態の位置の間隔は |mid| + 1 で最低1。よって y は非空。
 4. **`|xy| ≤ |Q|`**: target を `take (|Q| + 1)` に取ったことにより list 全体が |Q|+1 要素以下、よって j ≤ |Q|。
 
 派生定義として x = w[0..i]、y = w[i..j]、z = w[j..]。これらは pattern マッチの prefix/middle/suffix から計算的に取り出せる。
@@ -294,7 +299,7 @@ pwl-pumping は pwl-* シリーズで初めて、`matches` の target が **定�
 
 これは pwl-* の意味論の拡張：`matches` の左辺に派生値を許す。pattern 言語の表現力を「直接与えられた構造」から「構造から計算される値」に広げる。
 
-派生値の `matches` を無制限に許すと健全性に問題が出るので、**「matcher として整合する型に値が落ちる場合のみ許す」** という制約が必要。`(M.run w).take (|Q|+1)` は `List Q` 型なので `list Q` matcher に整合し、健全性は保たれる。この制約の意味論的詳細は別途整理が必要。
+派生値に対しても、**「target の型と matcher の対象型が整合すること」** を要求する。`(M.run w).take (|Q|+1)` は `List Q` 型なので `list Q` matcher の対象型と一致する。これに加えて、走行列の分解から入力語の分解や状態遷移の関係を導く補題が必要であり、型の一致だけでこれらの関係の健全性が証明されるわけではない。この導出の詳細は別途整理する。
 
 この拡張により、計算過程・アルゴリズムの中間値・derived data structure に対しても pattern 言語が適用可能になる。Bézout（ユークリッド算法の trace）、CRT（中国剰余の reconstruction trace）、Lagrange（剰余類分解）など、計算的構造を持つ多くの定理がこの拡張の恩恵を受ける。
 
@@ -320,7 +325,7 @@ pwl-ramsey の multiset matcher は順序情報を持たないため、Pumping �
 list pattern `_ ++ x :: _` は関数型プログラミングで「list 中のどこかに x が現れる」を表す古典的慣用句。これを2回連鎖させた `_ ++ $q :: _ ++ #q :: _` で「同要素が順序付きで2回出現」を表現。
 
 - 第1の `_ ++ ($q ::)`: 前方のどこかで $q を取り出し、prefix の長さで位置 i が決まる
-- 第2の `_ ++ (#q ::)`: 後方のどこかで同じ q を取り出し、middle の長さで間隔 j-i が決まる
+- 第2の `_ ++ (#q ::)`: 後方のどこかで同じ q を取り出し、middle の長さに1を加えた値が間隔 j-i になる
 - 末尾の `_`: 残りの suffix
 
 list の順序により「前方」「後方」が自動的に意味付けされる。multiset では実現できない表現。
@@ -331,12 +336,13 @@ Pumping と Ramsey は **構造的に同型の鳩の巣論法** を使うが、�
 
 | 観点 | pwl-ramsey | pwl-pumping |
 |---|---|---|
-| 鳩の巣の対象 | v からの5辺 | DFA の |Q|+1 ステップ走行 |
+| 鳩の巣の対象 | v からの5辺 | DFA の \|Q\|+1 個の状態を含む走行列 |
 | 容器 | multiset（順序なし） | list（順序あり） |
 | 重複検出 | 同色辺3本 | 同状態2回 |
 | 非線形パターン | `#c`（色の一致） | `#q`（状態の一致） |
 | 派生分解 | 三角形の3頂点 (x, y, z) | 語の3分割 (x, y, z) |
-| 網羅性補題 | `two_color_exhaustive` | `dfa_loop_iteration` |
+| 鳩の巣補題 | `pigeonhole_edges_at` | `pigeonhole_list` |
+| その後の補題 | `triangle_two_color_exhaustive`（網羅性） | `dfa_loop_iteration`（受理保存） |
 
 両者を pwl-* 内で並べることで、「鳩の巣論法は pattern style で **構造を変えても同じ骨格で書ける**」という主張が成立する。これは pattern 言語の **汎化可能性** の証明として論文の中核主張の一つを支える。
 

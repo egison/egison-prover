@@ -11,7 +11,7 @@ K₆（6頂点の完全グラフ）の辺を赤・青の2色で塗ると、必�
 ### Lean 4 での定義
 
 ```lean
-inductive Color | red | blue
+inductive Color | red | blue deriving DecidableEq, Fintype
 
 -- 注意: Mathlib の Sym2 は対角元 ⟦(x,x)⟧ を含むため、相異性を明示しないと
 -- ⟨x, x, x, edge ⟦(x,x)⟧, rfl, rfl, rfl⟩ で定理が自明に成立してしまう。
@@ -58,6 +58,10 @@ Lean 4 版では `monochromatic` の定義内でこれらの関係を明示的�
 ### 補助補題
 
 ```lean
+def opposite : Color → Color
+  | .red => .blue
+  | .blue => .red
+
 def same_color_neighbors (edge : Sym2 (Fin 6) → Color) (v : Fin 6) (c : Color) :
     Finset (Fin 6) :=
   Finset.univ.filter (fun w => w ≠ v ∧ edge ⟦(v, w)⟧ = c)
@@ -167,6 +171,7 @@ lemma pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6)
 lemma triangle_two_color_exhaustive
     (edge : Sym2 (Fin 6) → Color)
     (c : Color) (x y z : Fin 6)
+    (hxy : x ≠ y) (hyz : y ≠ z) (hzx : z ≠ x)
     matches
       (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _
     | (#x, #y) → (!#c & $c') ::
@@ -180,6 +185,10 @@ lemma triangle_two_color_exhaustive
   simp_all
   -- 2⁴ = 16 通りの全数検査で自動証明。
 ```
+
+`triangle_two_color_exhaustive` は `x,y,z` が互いに異なることを前提とする。
+例えば `x = y = z` なら、自己ループにマッチしないペアパターンのため両選択肢が失敗する。
+主定理では外側のマッチから3頂点の相異性が得られるので、この前提を満たせる。
 
 `pigeonhole_edges_at` は、始点 `v` を補題の引数として固定する。
 旧版のように `($v, $x)` で `v` 自体を探索するのではなく、
@@ -249,6 +258,7 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 
     exhaustive by
       triangle_two_color_exhaustive edge c x y z
+        ‹x ≠ y› ‹y ≠ z› ‹z ≠ x›
 
   exhaustive by
     pigeonhole_edges_at edge v
@@ -306,7 +316,7 @@ theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
 したがって、`x,y,z` が色 `c'` の単色三角形を形成する。
 
 Lean 4 版では、外側の同色辺を `edge_vx`, `edge_vy`, `edge_vz` として明示的に保持し、
-内側の各辺についても `hxy`, `hyz`, `hxz` のような証明項を個別に扱う必要がある。
+頂点の相異性には `hxy`, `hyz`, `hxz`、内側の各辺の色には `hcxy`, `hcyz`, `hcxz` のような証明項を個別に扱う必要がある。
 パターンマッチ指向版では、これらの関係はすべてマッチの成立から自動的に得られる。
 
 **`exact` での証明の完了:**
