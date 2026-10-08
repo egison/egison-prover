@@ -224,7 +224,7 @@ corollary pumping_lemma (M : DFA Q Σ) (w : List Σ)
 
 核定理は鳩の巣補題の単一適用、系は match 1 腕 + `dfa_loop_iteration` で閉じる。pwl-ramsey / pwl-schur と同じ「鳩の巣＋外出し補題」の二段構成。
 
-系の match 腕 `$pre ++ $q :: $mid ++ #q :: _` は、核定理の主張パターン `_ ++ $q :: _ ++ #q :: _` のワイルドカード `_` をパターン変数 `$pre` / `$mid` に細分しただけであり、マッチの成否は変わらない。よって `exhaustive by run_repeats_state M w h_long h_acc` で網羅性が与えられる（この「`_` → `$x` 細分」を許すアダプタ規則の形式化は今後の課題。review_20260612.md B-2）。**補題の主張パターンと適用側の match 腕の対応**という pwl-* の核心構造（`pigeonhole_edges_at` ⇄ ramsey 主定理）が、ここでも成立する。
+系の match 腕 `$pre ++ $q :: $mid ++ #q :: _` は、核定理の主張パターン `_ ++ $q :: _ ++ #q :: _` のワイルドカード `_` をパターン変数 `$pre` / `$mid` に細分しただけであり、マッチの成否は変わらない。よって `exhaustive by run_repeats_state M w h_long h_acc` で網羅性が与えられる（この「`_` → `$x` 細分」を許すアダプタ規則の形式化は今後の課題。[設計上の課題](review.md) §4）。**補題の主張パターンと適用側の match 腕の対応**という pwl-* の核心構造（`pigeonhole_edges_at` ⇄ ramsey 主定理）が、ここでも成立する。
 
 `run_ends_at` / `loops_back` は「x を読み終えた状態が q」「y を読むと q に戻る」という事実で、走行列の分解位置と `$q` / `#q` のマッチから導出される（matcher 意味論からの自動導出の対象。詳細化は今後の課題）。
 

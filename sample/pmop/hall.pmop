@@ -84,7 +84,7 @@ def neighbors_3
   --   G = ⟦(0,0), (0,0), (1,0), (2,2)⟧ では N({0,1}) の素朴サイズは
   --   3 ≥ 2 となるが、実際の隣接 girl は {0} のみで、boys 0, 1 を
   --   distinct な girl にマッチさせることはできず、hall_3 が偽になる。
-  -- (review_20260612.md A-3)
+  -- (design/review.md §4)
 
 def size_3 {A : Type} (xs : Multiset A) : Nat := primitive
 

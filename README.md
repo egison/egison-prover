@@ -7,9 +7,9 @@ Egison with a dependent type system
 The proposed language lets theorem statements describe structures with patterns,
 and uses the same patterns to extract witnesses in proofs.
 See the [design overview](design/overview.md) and the
-[current design review](design/review_20261008.md).
+[current design review](design/review.md).
 
-The Haskell implementation is an earlier dependent-type-checking prototype using
+The Haskell implementation is a dependent-type-checking prototype using
 the syntax in `sample/*.pegi`. The examples in `sample/pmop/*.pmop` are design
 sketches; `matches`, `exhaustive by`, and the proposed matchers are not implemented
 by the current parser and checker.

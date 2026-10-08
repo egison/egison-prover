@@ -27,7 +27,7 @@ def opposite : Color → Color
 -- ---------------------------------------------------------------
 -- 2. Identity type (MLTT, primitive)
 -- ---------------------------------------------------------------
--- 既存の data $Eq を捨て、overview.md §「ベース」に合わせて primitive 化する。
+-- overview.md §「ベース」に従い、命題等式 Id を primitive として提供する。
 -- J (path induction) は型検査器組み込みで定義する。
 
 primitive type Id  : (A : Type) → A → A → Type
@@ -156,7 +156,7 @@ primitive matcher multiset
 --
 -- Schur (schur.pmop) のように「x = y を許す」主張はこちらを使う。
 -- multiset を使うと x ≠ y が強制されて主張が変わり、Schur では偽になる
--- (red = {1,2,4}, blue = {3,5} が反例。review_20260612.md A-1)。
+-- (red = {1,2,4}, blue = {3,5} が反例。design/pwl-schur.md)。
 -- matcher の選択が主張の意味を決める典型例。
 --
 -- 受け付けるパターン形は multiset と同じ
@@ -196,31 +196,21 @@ primitive matcher list
 -- ordered sequence とみなしてマッチする。
 
 -- ---------------------------------------------------------------
--- 6.6. bipartite-graph matcher
+-- 6.6. bipartite_graph matcher
 -- ---------------------------------------------------------------
--- overview.md の中心例 Hall の結婚定理に必要な二部グラフ用 matcher。
+-- Hall の結婚定理に用いる matcher (design/pwl-hall.md §A)。
+-- target は二部グラフ G : BipartiteGraph X Y。
 --
--- 入力は edge : A → B → Bool (隣接関係) または等価な構造。
--- マッチは「サイズ k の matching」(両側の頂点で重複なく辺を k 本選ぶ)
--- を取り出す形を取る。
+--   G matches $X' ⤳ $Y' as bipartite_graph X Y
+--     X' ⊆ X、Y' ⊆ Y、N_G(X') ⊆ Y' を満たす部分集合を束縛する。
 --
--- 受け付けるパターン形:
---   ($b₁, $g₁) :: ($b₂ & !#b₁, $g₂ & !#g₁) :: ... :: _
---     boy 側・girl 側それぞれの重複なし条件を !# パターンで自動付加。
---   matcher 側で簡略構文を提供する:
---   matching of length k:
---     ⟨ $b₁ ↔ $g₁ ; $b₂ ↔ $g₂ ; ... ; $bₖ ↔ $gₖ ⟩
---     ↔ は「辺の存在」と「両側 distinctness」を一気に表す糖衣構文。
+--   G matches $f as matching_of (bipartite_graph X Y)
+--     X を覆う完全マッチング f : X → Y とその証拠を取り出す。
 --
--- 一般 Hall は subset 量化が要るため bipartite matcher 単独では
--- 閉じない (Hall 条件は仮定として与える)。
-
--- 名称は overview.md / pwl-hall.md の bipartite_graph に統一。
--- ただし本インタフェース (隣接関係 A → B → Bool ベース、matching 取り出し
--- 中心) と pwl-hall.md の ⤳ / matching_of パターンコンストラクタ案との
--- 統合は未了 (review_20260612.md C-3)。
-primitive matcher bipartite_graph
-  : {A B : Type} → (A → B → Bool) → Type
+-- グラフの表現、matcher の型、部分集合や関数を束縛する規則は
+-- design/review.md §3.2 / §4 の設計課題である。
+-- sample/pmop/hall.pmop は3×3の辺集合を multiset として記述する例であり、
+-- 一般の二部グラフの記述と共通の型・意味論に揃える必要がある。
 
 -- ---------------------------------------------------------------
 -- 7. matches 命題 (式レベル)
@@ -235,7 +225,7 @@ primitive matcher bipartite_graph
 --
 -- 前者形は target e を省略した糖衣構文。後者形は target を明示する。
 -- matches 命題自体はどちらの形でも書かれており、型推論の違いではない。
--- 複数パラメータから target を選ぶ規則は未決 (design/review_20260612.md C-4)。
+-- 複数パラメータから target を選ぶ規則は未決 (design/review.md §3.4)。
 
 -- ---------------------------------------------------------------
 -- 8. exhaustive by 補題

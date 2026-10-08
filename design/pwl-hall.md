@@ -4,7 +4,10 @@
 
 二部グラフ $G = (X \cup Y, E)$ が X を覆う完全マッチングを持つ ⇔ X の任意の部分集合 S について |N(S)| ≥ |S|（**Hall 条件**）。
 
-本ファイルでは、特に **Hall 条件のパターン化** と、その帰結としての **完全マッチングの取り出し** に焦点を当てる。Hall の定理の本体（条件 → マッチング存在）の証明は induction によるため pattern syntax で書く意義が薄く、ここでは扱わない。
+本ファイルでは、**Hall 条件のパターン化**、定理の主張と適用、
+および **完全マッチングの取り出し** を説明する。
+一般形の存在証明とマッチャーの正しさの証明に必要な作業は、
+[設計上の課題](review.md) §4 にまとめる。
 
 ---
 
@@ -36,48 +39,9 @@ theorem hall (G : BipartiteGraph X Y) (h : hallCondition G) :
 
 ---
 
-## A. Hall 条件のパターン化：素朴な版
+## A. Hall 条件のパターン化
 
-Hall 条件の否定は「**ある k に対して k+1 個の左頂点が k 個の右頂点しか持たない**」である。これを「悪い構造の不在」として直接書く：
-
-```
-HallCondition (E : Multiset (X × Y)) ≡
-    ¬ ( X matches $x₁ :: $x₂ :: ... :: $xₖ₊₁ :: _
-      ∧ Y matches $y₁ :: $y₂ :: ... :: $yₖ :: _
-      ∧ ¬ ( E matches ((#x₁ | #x₂ | ... | #xₖ₊₁),
-                       ($y & !#y₁ & !#y₂ & ... & !#yₖ)) :: _ ) )
-```
-
-この式は、k と選んだ頂点列を存在量化する数学的な略記である。
-X と Y を照合対象に書いた箇所は、それぞれの全頂点を重複なく列挙した多重集合を指す。
-独立した `matches` 命題の中の束縛を後続の命題から直接参照する規則はまだないため、
-正式な言語構文にする際は、量化と束縛の有効範囲を明示する必要がある。
-
-### 読み解き
-
-- 最外の `¬ (... ∧ ... ∧ ¬ ...)`: 「以下を満たす選び方は **存在しない**」
-- `X matches $x₁ :: ... :: $xₖ₊₁ :: _`: X から k+1 個の相異なる左頂点を取る（X の全頂点を重複なく列挙した多重集合に対する `::` の挙動より）
-- `Y matches $y₁ :: ... :: $yₖ :: _`: Y から k 個の相異なる右頂点を取る
-- `¬ E matches ((#x₁ | ... | #xₖ₊₁), ($y & !#y₁ & ... & !#yₖ)) :: _`:
-  - 取った x たちのいずれか（`(#x₁ | ... | #xₖ₊₁)` の or パターン）から、
-  - 取った y たちのいずれでもない右頂点（`$y & !#y₁ & ... & !#yₖ` の and-not 結合）へ、
-  - 向かう辺が **E に存在しない**
-
-つまり「{x₁,...,xₖ₊₁} から出る辺の終点はすべて {y₁,...,yₖ} に入る」（= N(X') ⊆ Y' で |X'| = k+1 > k = |Y'|、Hall 条件違反）。
-
-### 複雑さの源
-
-1. **可変長パターン** `x₁ :: ... :: xₖ₊₁`：パラメータ k に依存する長さの列挙。pattern syntax の正式な構成要素として「可変長 cons 連鎖」を導入するか、メタ的に展開する必要がある。
-2. **入れ子の否定**：`¬ (... ∧ ¬ ...)` という構造はド・モルガンで畳めば「∀ x's, ∀ y's, ∃ edge」と読めるが、pattern として書くと読みづらい。
-3. **or パターンと and-not 結合**：`#x₁ | ... | #xₖ₊₁` と `$y & !#y₁ & ... & !#yₖ` の k 依存の連鎖が二重に出現。
-
-このまま論文 statement に置くのは厳しい。
-
----
-
-## B. Hall 条件のパターン化：bipartite_graph matcher 経由（推奨）
-
-新しい matcher `bipartite_graph` を導入し、「**部分グラフ閉包**」を表すパターンコンストラクタ `⤳` を提供する：
+matcher `bipartite_graph` は、「**部分グラフ閉包**」を表すパターンコンストラクタ `⤳` を提供する：
 
 ```
 G matches $X' ⤳ $Y'    as bipartite_graph X Y
@@ -95,7 +59,8 @@ HallCondition (G : BipartiteGraph X Y) ≡
 
 （`BipartiteGraph X Y` は**型**、`bipartite_graph X Y` はその型に対する **matcher**。型注釈には型を、`as` 節には matcher を書く。）
 
-**2行に縮む**。素朴版の入れ子の否定・可変長・or/and-not 結合がすべて matcher 内部に押し込まれる。
+この2行は、Hall 条件に違反する部分集合の組が存在しないことを表す。
+部分集合の選択と近傍の包含関係は matcher の意味論が与える。
 
 ### Matcher 内部での実装
 
@@ -138,7 +103,7 @@ Lean 版の `∃ f : X → Y, Function.Injective f ∧ ∀ x, (x, f x) ∈ G.edg
 
 ---
 
-## C. 主張と適用の対応
+## B. 主張と適用の対応
 
 Hall の定理を **適用** する場面でも、同じ pattern が match の腕として現れる：
 
@@ -161,26 +126,22 @@ pwl-ramsey の `pigeonhole_edges_at`、pwl-schur の `color_dichotomy` と同じ
 
 ---
 
-## D. 比較
+## C. Lean 4 との比較
 
-### 量的比較
+| | Lean 4 | パターンマッチ指向 |
+|---|---|---|
+| Hall 条件の定義 | `∀ S : Finset X, S.card ≤ (neighborhood G S).card` | `¬ (G matches $X' ⤳ $Y' where …)` |
+| 完全マッチングの存在 | `∃ f, Injective f ∧ ∀ x, (x, f x) ∈ E` | `G matches $f as matching_of (bipartite_graph X Y)` |
+| 構造を述べる補助述語 | `neighborhood`、`perfectMatching` | `⤳` と `matching_of` の意味論で表す |
+| 部分集合の量化 | `∀ S : Finset X` | matcher が部分集合を選択する |
 
-| | Lean 4 | パターンマッチ指向（素朴版） | パターンマッチ指向（matcher 経由） |
-|---|---|---|---|
-| Hall 条件の定義 | `∀ S : Finset X, S.card ≤ (neighborhood G S).card` | 入れ子の否定 + 可変長パターン | `¬ (G matches $X' ⤳ $Y' where ...)`（2行） |
-| 完全マッチングの定義 | `∃ f, Injective f ∧ ∀ x, (x, f x) ∈ E` | （素朴版なし） | `G matches $f as matching_of (bipartite_graph X Y)` |
-| 補助述語 | `neighborhood`、`hallCondition`、`perfectMatching` | （多数のメタ的展開） | 0（すべて matcher 内部） |
-| 高階の量化 | `∀ S : Finset X` | 可変長 cons でパターン化 | matcher 内部に隠蔽 |
-
-### 設計上の判断
-
-- **素朴版は statement として論文に出すには複雑すぎる**。可変長パターンと入れ子の否定の組み合わせは読者に負担をかける。
-- **matcher 経由版は読みやすいが、新規 matcher の設計コストが高い**。`⤳` の意味論と健全性を別途厳密化する必要がある。
-- **論文 narrative**: 素朴版を「naive 表現」として一度示し、その複雑さを動機として bipartite_graph matcher を導入する流れが説得力を持つ。「matcher 抽象が statement を救う」という主張の具体例になる。
+パターンマッチ指向版では、近傍の包含関係と完全マッチングの性質を
+matcher が与える。`⤳` と `matching_of` の型・意味論・健全性を明示し、
+利用者が導入する matcher についても同じ条件を検査できるようにする必要がある。
 
 ---
 
-## E. Matcher 設計の論点
+## D. Matcher 設計の論点
 
 ### `⤳` パターンの非決定性
 
@@ -210,9 +171,10 @@ matchAll G as bipartite_graph X Y with
 
 ## まとめ
 
-- Hall 条件の素朴なパターン化は可変長と入れ子の否定で複雑化する
-- `bipartite_graph` matcher、`⤳` パターンコンストラクタ、`matching_of` による matcher の変換を導入すると、statement が劇的に簡潔になる
-- Hall の定理の主張・適用は、ramsey / schur と同じく「pattern 一個」に閉じる
-- 論文 narrative としては、**「素朴版で複雑さを示し、matcher 抽象で救う」** という流れが効く
+- Hall 条件は、`⤳` パターンで表す「近傍を含む部分集合の組」に対する大きさの条件として述べる。
+- 完全マッチングの存在は、`matching_of` が与える matcher とパターン変数 `$f` で述べる。
+- Hall の定理を適用するときも同じパターンを使い、`exhaustive by hall G h_hall` で f を取り出す。
 
-定理本体の証明（Hall 条件 → 完全マッチング存在）は induction または augmenting path 法で行う。これは pattern syntax 固有の利点が薄いため、本ファイルでは扱わない。証明側ではなく **statement 側で matcher 抽象が威力を発揮する** 例として位置付ける。
+定理本体の証明には帰納法または増加路（マッチングに含む辺と含まない辺を交互に通り、
+辺の選び方を入れ替えてマッチングを大きくする経路）を使う。
+一般形の存在証明と matcher の健全性証明の完成は、[設計上の課題](review.md) §4 に記す。

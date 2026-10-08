@@ -1,12 +1,11 @@
 -- ramsey.pmop
 -- Ramsey R(3,3) = 6 を pattern-match-oriented proof で書く。
--- 中身は design/pwl-ramsey.md §B (改訂版) をそのまま実コード形式に直したもの。
+-- design/pwl-ramsey.md §B の証明を提案構文で記した設計スケッチ。
 -- 主定理 + 補題 2 つで構成し、主張がパターン構文だけで書けることを示す
 -- (`monochromatic` などの補助定義を経由しない) のが本ファイルの主眼。
 --
--- 改訂方針 (pwl-ramsey.md §B):
---   - edge 以外の補助的な辺色関数・射影 (spokes、色タプル等) を作らず、
---     外側・内側とも同じ edge を multiset として直接観察する
+-- 証明の方針 (pwl-ramsey.md §B):
+--   - 外側・内側とも同じ edge を multiset として直接観察する
 --   - 補題側の主張パターンと適用側の match 腕を字面一致させる
 --     (exhaustive by の検査がこの一致を要求する)
 
@@ -41,7 +40,7 @@ lemma pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6)
           exact ⟨x', c', y', z'⟩
       -- TODO(網羅性): edge'' に残る v の辺は 3 本。どれも c でなければ
       -- 2 色性から 3 本とも同色 c' になる、という数え上げの正当化が必要。
-      -- counting 層は未設計 (design/review_20260612.md B-3)。
+      -- 数え上げの証明は未完成 (design/review.md §4)。
     | (#v, $x') → (!#c & $c') ::
       (#v, $y') → #c' ::
       (#v, $z') → #c' :: _ ⇒
@@ -54,8 +53,8 @@ lemma pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6)
 -- ---------------------------------------------------------------
 -- 補題 2: 三角形内部 3 辺に関する 2 色の網羅性
 -- ---------------------------------------------------------------
--- 旧版のように色のタプル (Color, Color, Color) に射影せず、
--- edge 自体を multiset として扱う (pwl-ramsey.md §B 改訂版)。
+-- edge を multiset として観察し、x,y,z の内部辺を取り出す
+-- (pwl-ramsey.md §B)。
 -- 主定理の内側 match の 2 腕と字面一致するパターンを持つ。
 --
 -- 1. {x,y,z} の内部辺のどれか 1 本が色 c である。

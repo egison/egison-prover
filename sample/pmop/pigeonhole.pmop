@@ -45,7 +45,7 @@ theorem pigeonhole (n : Nat) (f : Fin (suc n) → Fin n)
   | ($x → $y) :: ($z → #y) :: _ ⇒
       exact ⟨x, y, z⟩
   -- TODO: pigeon_step の第2選択肢が不可能であることを証明して除去し、
-  -- 衝突パターンだけの matches 命題を得る必要がある (design/review_20261008.md)。
+  -- 衝突パターンだけの matches 命題を得る必要がある (design/review.md §4)。
   exhaustive by pigeon_step n f
 
 
@@ -61,7 +61,7 @@ theorem pigeonhole (n : Nat) (f : Fin (suc n) → Fin n)
 -- このパターンに加えてもう 1 要素 ($xn+1 → ?) が必ず存在 (要素数 n+1)
 -- することから、? は必ず {0,...,n-1} のいずれかに被る。
 
--- ⚠ 未完成 (design/review_20260612.md B-3, B-2 参照):
+-- ⚠ 未完成 (design/review.md §4 参照):
 --   - 第 2 選言肢「衝突なしパターン」は一般の n では可変長パターン
 --     (Fin n の全要素を 1 度ずつ消費する形) を要し、現行のパターン文法では
 --     書けない。可変長 cons 連鎖の導入かメタ的展開が必要。
