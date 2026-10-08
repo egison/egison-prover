@@ -11,7 +11,7 @@ K₆（6頂点の完全グラフ）の辺を赤・青の2色で塗ると、必�
 ### Lean 4 での定義
 
 ```lean
-inductive Color | red | blue deriving DecidableEq, Fintype
+inductive Color where | red | blue deriving DecidableEq, Fintype
 
 -- 注意: Mathlib の Sym2 は対角元 ⟦(x,x)⟧ を含むため、相異性を明示しないと
 -- ⟨x, x, x, edge ⟦(x,x)⟧, rfl, rfl, rfl⟩ で定理が自明に成立してしまう。

@@ -13,9 +13,9 @@
 ### Lean 4 での定義
 
 ```lean
-inductive Color | red | blue deriving DecidableEq
+inductive Color where | red | blue deriving DecidableEq
 
-inductive D | one | two | three | four | five deriving DecidableEq, Fintype
+inductive D where | one | two | three | four | five deriving DecidableEq, Fintype
 
 def D.val : D → Nat
   | .one => 1 | .two => 2 | .three => 3 | .four => 4 | .five => 5
