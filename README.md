@@ -18,11 +18,6 @@ the syntax in `sample/*.pegi`. The examples in `sample/pmop/*.pmop` are design
 sketches; `matches`, `exhaustive by`, and the proposed matchers are not implemented
 by the current parser and checker.
 
-The next presentation target is a **draft paper at TFP 2027**, held in Kyoto
-on March 13–15, 2027. The draft deadline is January 28, 2027 (AoE).
-See the [official call for papers](https://trendsfp.github.io/2027/cfp.html)
-and [submission preparation in the review](design/review.md).
-
 ## How to test
 
 ```
