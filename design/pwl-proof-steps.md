@@ -12,12 +12,18 @@
 | 群の語 | [全文](examples/lean/DesignExamples/GroupWords.lean) | [全文](examples/pmop/DesignExamples/GroupWords.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/GroupWords.lean) |
 | 有限置換 | [全文](examples/lean/DesignExamples/Permutations.lean) | [全文](examples/pmop/DesignExamples/Permutations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/Permutations.lean) |
 | 歩道と道 | [全文](examples/lean/DesignExamples/WalkPaths.lean) | [全文](examples/pmop/DesignExamples/WalkPaths.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkPaths.lean) |
+| 隣接する同一要素の消去の局所合流性 | [全文](examples/lean/DesignExamples/LocalConfluence.lean) | [全文](examples/pmop/DesignExamples/LocalConfluence.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/LocalConfluence.lean) |
 
 `$x` は値を束縛し、`#e` は式 e との等式を要求する。
 `::` は要素と残りへの分解、`++` は列を前後に分割するパターンである。
 `match h : …` は分解の証拠を h として受け取る。
 記法・依存関係・検査方法は [コードの一覧と仕様](examples/README.md) に記す。
 `.pmop` の直接の検査は処理系への実装が必要である。
+
+複数の分解を同時に扱う例として、[局所合流性](pwl-local-confluence.md) の完全なコードも置く。
+同じ語から得た2つの書換えの位置関係を分類し、両結果の共通の消去先を構成する。
+この例では、同じ補助補題を用いる Lean 版も短く書けるため、証明全体の短縮は確認できない。
+分解の条件をパターンで読めることと、証明の記述量が減ることは、別々に評価する。
 
 ## 1. 群の語から隣接する逆元を消去する
 
@@ -226,6 +232,7 @@ theorem exists_reduced (w : List G) :
 | 群の語 | 積の等式、簡約処理の値の保存 | 逆元の組と前後の列 | 結合法則、逆元の法則、長さの減少 |
 | 有限置換 | 互換の積としての表現 | a → b、c → a、残りのグラフ | 小さい置換の構成、合成の等式 |
 | 歩道と道 | 同じ始点・終点を持つ道の存在 | 同じ頂点の2回の出現と前後の列 | 辺の証拠の引き継ぎ、長さの減少 |
+| [局所合流性](pwl-local-confluence.md) | 2つの書換え結果の共通の消去先 | 同じ語に対する2箇所の一致・重なり・分離 | 一致時の反射性、分離時の残る組の消去 |
 
 これらには `multiset` と `list` の汎用的な分解を使える。
 数学的な性質は、マッチから得た関係と、各分野の補題を組み合わせて証明する。

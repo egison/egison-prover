@@ -8,6 +8,7 @@ import DesignExamples.WalkPaths
 import DesignExamples.GroupWords
 import DesignExamples.Pigeonhole
 import DesignExamples.ErdosSzekeres
+import DesignExamples.LocalConfluence
 
 namespace DesignExamples.PatternContracts
 

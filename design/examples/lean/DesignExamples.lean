@@ -9,3 +9,4 @@ import DesignExamples.PatternStyle.Permutations
 import DesignExamples.PatternStyle.WalkPaths
 import DesignExamples.PatternStyle.Pigeonhole
 import DesignExamples.PatternStyle.ErdosSzekeres
+import DesignExamples.PatternStyle.LocalConfluence

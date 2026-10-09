@@ -1,0 +1,50 @@
+-- 提案版で共有する定義・補題。Lean 版と同じ内容を持つ。
+import Mathlib
+
+namespace DesignExamples.TwoBlocks
+
+variable {A : Type*}
+
+/-- Two selected blocks of length two: same position, overlap, or disjoint. -/
+def Cases (p : List A) (a b : A) (s q : List A) (c d : A) (t : List A) : Prop :=
+  (p = q ∧ a = c ∧ b = d ∧ s = t) ∨
+  (q = p ++ [a] ∧ c = b ∧ s = d :: t) ∨
+  (p = q ++ [c] ∧ a = d ∧ t = b :: s) ∨
+  (∃ mid, q = p ++ [a, b] ++ mid ∧ s = mid ++ c :: d :: t) ∨
+  (∃ mid, p = q ++ [c, d] ++ mid ∧ t = mid ++ a :: b :: s)
+
+/-- Compare the second block with the first when its prefix extends the first. -/
+theorem forward (p : List A) (a b : A) (s q : List A) (c d : A) (t gap : List A)
+    (hq : q = p ++ gap) (h : a :: b :: s = gap ++ c :: d :: t) :
+    (p = q ∧ a = c ∧ b = d ∧ s = t) ∨
+    (q = p ++ [a] ∧ c = b ∧ s = d :: t) ∨
+    (∃ mid, q = p ++ [a, b] ++ mid ∧ s = mid ++ c :: d :: t) := by
+  cases gap with
+  | nil =>
+    simp only [List.append_nil] at hq
+    simp only [List.nil_append, List.cons.injEq] at h
+    exact Or.inl ⟨hq.symm, h.1, h.2.1, h.2.2⟩
+  | cons x gap =>
+    cases gap with
+    | nil =>
+      simp only [List.cons_append, List.nil_append, List.cons.injEq] at h
+      exact Or.inr (Or.inl ⟨by simpa [h.1] using hq, h.2.1.symm, h.2.2⟩)
+    | cons y mid =>
+      simp only [List.cons_append, List.cons.injEq] at h
+      exact Or.inr (Or.inr ⟨mid, by simpa [h.1, h.2.1, List.append_assoc] using hq,
+        h.2.2⟩)
+
+/-- A generic classification: no assumption on the elements or a rewriting rule. -/
+theorem exhaustive (p : List A) (a b : A) (s q : List A) (c d : A) (t : List A)
+    (h : p ++ a :: b :: s = q ++ c :: d :: t) : Cases p a b s q c d t := by
+  rcases List.append_eq_append_iff.mp h with ⟨gap, hq, htail⟩ | ⟨gap, hp, htail⟩
+  · rcases forward p a b s q c d t gap hq htail with hs | ho | hd
+    · exact Or.inl hs
+    · exact Or.inr (Or.inl ho)
+    · exact Or.inr (Or.inr (Or.inr (Or.inl hd)))
+  · rcases forward q c d t p a b s gap hp htail with hs | ho | hd
+    · exact Or.inl ⟨hs.1.symm, hs.2.1.symm, hs.2.2.1.symm, hs.2.2.2.symm⟩
+    · exact Or.inr (Or.inr (Or.inl ho))
+    · exact Or.inr (Or.inr (Or.inr (Or.inr hd)))
+
+end DesignExamples.TwoBlocks

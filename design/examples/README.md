@@ -15,8 +15,16 @@
 | 群の語の逆元消去・簡約 | [GroupWords.lean](lean/DesignExamples/GroupWords.lean) | [GroupWords.pmop](pmop/DesignExamples/GroupWords.pmop) |
 | 有限置換の互換への分解 | [Permutations.lean](lean/DesignExamples/Permutations.lean) | [Permutations.pmop](pmop/DesignExamples/Permutations.pmop) |
 | 歩道から道への変換 | [WalkPaths.lean](lean/DesignExamples/WalkPaths.lean) | [WalkPaths.pmop](pmop/DesignExamples/WalkPaths.pmop) |
+| 隣接する同一要素の消去の局所合流性・合流性 | [LocalConfluence.lean](lean/DesignExamples/LocalConfluence.lean) | [LocalConfluence.pmop](pmop/DesignExamples/LocalConfluence.pmop) |
 | 一般の鳩の巣原理 | [Pigeonhole.lean](lean/DesignExamples/Pigeonhole.lean) | [Pigeonhole.pmop](pmop/DesignExamples/Pigeonhole.pmop) |
 | Erdős–Szekeres の5項の場合 | [ErdosSzekeres.lean](lean/DesignExamples/ErdosSzekeres.lean) | [ErdosSzekeres.pmop](pmop/DesignExamples/ErdosSzekeres.pmop) |
+
+局所合流性の両版は、[TwoBlocks.lean](lean/DesignExamples/TwoBlocks.lean) /
+[TwoBlocks.pmop](pmop/DesignExamples/TwoBlocks.pmop) の汎用的な区間分類と、
+[AdjacentCancellationCommon.lean](lean/DesignExamples/AdjacentCancellationCommon.lean) /
+[AdjacentCancellationCommon.pmop](pmop/DesignExamples/AdjacentCancellationCommon.pmop) の
+定義・補助補題を共有する。完全な比較と現在の結果は
+[局所合流性の設計例](../pwl-local-confluence.md) に記す。
 
 ## 検査方法と依存関係
 
@@ -115,6 +123,7 @@ exhaustive by coverage
 | `set (A → B)` | 有限の型 A 上の全関数 | キーの所属と出力の等式を返す。選択後も同じグラフを使う |
 | `set (A × B)` | `Finset (A × B)` | `p → q` は所属するペアを選ぶ。選択しても対象は減らない |
 | `list A` | `List A` | `::` と `++` はリストの等式による分解。残りも `List A` |
+| `(M₁, …, Mₖ)` | 各 Mᵢ の対象型の組 | 各成分を対応するマッチャーで照合する。束縛は左から右に導入し、証拠は各成分の関係の連言 |
 | `list (Fin n → A)` | 有限関数 | 入力位置の昇順に `(i, f i)` を並べる。前後関係は入力位置の不等式になる |
 | `bipartite_graph X Y` | 辺の関係 `E : X → Y → Prop` | `$S ⤳ $T` は有限部分集合 S,T と `neighbors E S ⊆ T` の証拠 |
 | `matching_of E` | 同じ辺の関係 E | `$f` は `X → Y` の関数、証拠は単射性と `∀ x, E x (f x)` |
@@ -147,6 +156,11 @@ exhaustive by coverage
   閉性・対合・固定点の不在の引き継ぎと要素数の減少は `pair_remainder` で証明する。
 - 群の語：`w = pre ++ g :: g⁻¹ :: post`。否定の腕ではこの分解の不成立。
   積の保存は `cancel_pair`、停止に使う長さの減少は帰納法の腕で証明する。
+- 隣接する同一要素の消去：2つの証明から得た `(p,a,s,q,b,t)` を同時に照合する。
+  共通の語の等式は `p ++ a :: a :: s = q ++ b :: b :: t`。
+  各腕の6成分の等式と束縛値を `AdjacentCancellation.CutPatterns` で定める。
+  `TwoBlocks.exhaustive` が任意の長さ2の区間を分類し、`cut_patterns` がその証拠を
+  各腕へ対応付ける。網羅性と共通の消去結果の構成は、それぞれ証明を含める。
 - 置換の固定点：`π a = a` と `graph S π = (a,a) :: R`。
   固定点でない腕は b≠a、c≠a、c∈S、π(a)=b、π(c)=a とグラフの分解。
   これらは `graph_cases` で証明する。小さい置換は `π * swap a c` として構成する。

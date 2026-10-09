@@ -45,3 +45,11 @@ import DesignExamples
 #print axioms DesignExamples.PatternStyle.Hall.hall
 #print axioms DesignExamples.PatternStyle.Ramsey.pattern_iff_ordinary
 #print axioms DesignExamples.PatternStyle.Schur.pattern_iff_ordinary
+#print axioms DesignExamples.TwoBlocks.exhaustive
+#print axioms DesignExamples.AdjacentCancellation.cut_patterns
+#print axioms DesignExamples.AdjacentCancellation.step_length
+#print axioms DesignExamples.AdjacentCancellation.local_confluence
+#print axioms DesignExamples.AdjacentCancellation.local_confluence_by_intervals
+#print axioms DesignExamples.AdjacentCancellation.confluence
+#print axioms DesignExamples.PatternStyle.AdjacentCancellation.local_confluence
+#print axioms DesignExamples.PatternStyle.AdjacentCancellation.confluence
