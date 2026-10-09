@@ -1,0 +1,65 @@
+import DesignExamples.CertifiedList
+
+namespace DesignExamples.ListCuts
+
+variable {A : Type*}
+
+-- 隣接する二要素と、その前後を表す。前後が同じ値を含んでも位置を区別する。
+structure Cut (A : Type*) where
+  pre : List A
+  first : A
+  second : A
+  post : List A
+  deriving DecidableEq
+
+def Cut.source (c : Cut A) : List A := c.pre ++ c.first :: c.second :: c.post
+
+def prepend (a : A) (c : Cut A) : Cut A := {c with pre := a :: c.pre}
+
+def starts (a : A) : List A → List (Cut A)
+  | [] => []
+  | b :: post => [⟨[], a, b, post⟩]
+
+def cuts : List A → List (Cut A)
+  | [] => []
+  | a :: rest => starts a rest ++ (cuts rest).map (prepend a)
+
+theorem cuts_sound {w : List A} {c : Cut A} (hc : c ∈ cuts w) : c.source = w := by
+  induction w generalizing c with
+  | nil => simp [cuts] at hc
+  | cons a rest ih =>
+    rcases List.mem_append.mp hc with hc | hc
+    · cases rest with
+      | nil => simp [starts] at hc
+      | cons b post =>
+        have heq : c = ⟨[], a, b, post⟩ := by simpa [starts] using hc
+        subst c
+        rfl
+    · obtain ⟨d, hd, rfl⟩ := List.mem_map.mp hc
+      simpa [Cut.source, prepend] using congrArg (List.cons a) (ih hd)
+
+theorem mem_cuts_source (c : Cut A) : c ∈ cuts c.source := by
+  rcases c with ⟨pre, a, b, post⟩
+  induction pre with
+  | nil => simp [Cut.source, cuts, starts]
+  | cons x pre ih =>
+    apply List.mem_append_right
+    apply List.mem_map.mpr
+    exact ⟨⟨pre, a, b, post⟩, ih, rfl⟩
+
+theorem cuts_complete {w : List A} {c : Cut A} (hc : c.source = w) : c ∈ cuts w := by
+  rw [← hc]
+  exact mem_cuts_source c
+
+theorem mem_cuts_iff {w : List A} {c : Cut A} : c ∈ cuts w ↔ c.source = w :=
+  ⟨cuts_sound, cuts_complete⟩
+
+def certifiedCuts (w : List A) : CertifiedList.Certified (fun c : Cut A => c.source = w) :=
+  (cuts w).attach.map fun c => ⟨c.val, cuts_sound c.property⟩
+
+theorem values_certifiedCuts (w : List A) :
+    CertifiedList.values (certifiedCuts w) = cuts w := by
+  simp only [CertifiedList.values, certifiedCuts, List.map_map]
+  exact List.attach_map_subtype_val _
+
+end DesignExamples.ListCuts

@@ -12,11 +12,14 @@ See the [design overview](design/overview.md) and the
 Examples using patterns inside equality proofs and induction are described in
 [fixed-point-free involutions](design/pwl-involution.md) and
 [patterns within proofs](design/pwl-proof-steps.md).
+[Conditions for shorter proofs](design/proof-brevity.md) examines nested selections
+that retain evidence in their results, with checked examples of inverse-pair
+deletion and induction over the number of selected pairs.
 
 The Haskell implementation is a dependent-type-checking prototype using
 the syntax in `sample/*.pegi`. The examples in `sample/pmop/*.pmop` are design
-sketches; `matches`, `exhaustive by`, and the proposed matchers are not implemented
-by the current parser and checker.
+sketches; `matches`, `exhaustive by`, evidence-carrying `matchAll`, and the proposed
+matchers are not implemented by the current parser and checker.
 
 ## How to test
 

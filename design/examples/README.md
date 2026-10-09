@@ -16,6 +16,7 @@
 | 有限置換の互換への分解 | [Permutations.lean](lean/DesignExamples/Permutations.lean) | [Permutations.pmop](pmop/DesignExamples/Permutations.pmop) |
 | 歩道から道への変換 | [WalkPaths.lean](lean/DesignExamples/WalkPaths.lean) | [WalkPaths.pmop](pmop/DesignExamples/WalkPaths.pmop) |
 | 隣接する同一要素の消去の局所合流性・合流性 | [LocalConfluence.lean](lean/DesignExamples/LocalConfluence.lean) | [LocalConfluence.pmop](pmop/DesignExamples/LocalConfluence.pmop) |
+| 離れた逆元対の全候補の正しさ・任意の個数への拡張 | [TwoCancellations.lean](lean/DesignExamples/TwoCancellations.lean) | [TwoCancellations.pmop](pmop/DesignExamples/TwoCancellations.pmop) |
 | 一般の鳩の巣原理 | [Pigeonhole.lean](lean/DesignExamples/Pigeonhole.lean) | [Pigeonhole.pmop](pmop/DesignExamples/Pigeonhole.pmop) |
 | Erdős–Szekeres の5項の場合 | [ErdosSzekeres.lean](lean/DesignExamples/ErdosSzekeres.lean) | [ErdosSzekeres.pmop](pmop/DesignExamples/ErdosSzekeres.pmop) |
 
@@ -25,6 +26,16 @@
 [AdjacentCancellationCommon.pmop](pmop/DesignExamples/AdjacentCancellationCommon.pmop) の
 定義・補助補題を共有する。完全な比較と現在の結果は
 [局所合流性の設計例](../pwl-local-confluence.md) に記す。
+
+逆元対の全候補の例は、[CertifiedList.lean](lean/DesignExamples/CertifiedList.lean) /
+[CertifiedList.pmop](pmop/DesignExamples/CertifiedList.pmop)、
+[ListCuts.lean](lean/DesignExamples/ListCuts.lean) /
+[ListCuts.pmop](pmop/DesignExamples/ListCuts.pmop)、
+[TwoCancellationsCommon.lean](lean/DesignExamples/TwoCancellationsCommon.lean) /
+[TwoCancellationsCommon.pmop](pmop/DesignExamples/TwoCancellationsCommon.pmop) を共有する。
+証拠を保持する有限列挙と、通常の列挙との等式は
+[PatternStyle/TwoCancellations.lean](lean/DesignExamples/PatternStyle/TwoCancellations.lean) で検査する。
+[短縮につながる条件と比較](../proof-brevity.md) に、補助証明を含む費用と自動化した Lean の比較対象を記す。
 
 ## 検査方法と依存関係
 
@@ -53,6 +64,7 @@ lake build
 
 さらに [PatternStyle/](lean/DesignExamples/PatternStyle/) に、各提案ソースの
 パターンを存在命題と選言へ展開し、証拠の取り出しを明示した完全な Lean 版を置く。
+`TwoCancellations` は、`matchAll` を証拠を保持する有限列挙の組合せへ展開した版である。
 こちらも `lake build` に含める。型・補助補題・各腕の推論をまとめて検査するためのコードであり、
 提案ソースから自動生成する変換器の実装ではない。
 編集時には、通常の版・提案版・証拠を展開した版の定理と証明を同時に更新する。
@@ -84,6 +96,7 @@ Lean の `decide` による証明を用いる。`native_decide` は使わない�
 `p | q` は選択肢ごとに値と証拠を持つ。
 `?(P)` と `where P` は命題 `P` の証拠を要求する。
 実行時にこれらを判定するには、判定可能性も必要になる。
+`::` は `++` より強く結び付き、どちらも右に結合する。
 
 `e matches P as M` は、P が束縛する値と、それらが M の関係を満たす証拠の存在を表す。
 この存在命題の型と、腕が受け取る証拠の型を、以下の関係で定める。
@@ -112,6 +125,14 @@ exhaustive by coverage
 `by`、`intro`、`obtain`、`rcases`、`rw`、`simp`、`omega`、`ring`、`induction`
 などは Lean と同じ証明操作を想定し、核の証明項に変換する。
 ここでは、未実装の操作の代わりに任意の証明を受理する規則は設けない。
+
+`matchAll h : e as M with | P => body` は、成功する各分解の値と関係の証拠を
+腕に渡し、腕の結果をすべて列挙する。成功しなければ空のリストであり、
+`exhaustive by` を要求しない。列挙自体の正しさと完全性は、マッチャーの規則から証明する。
+腕が証明付きの値を返せば、結果は証明付きの値のリストになる。
+腕がリストを返す場合は、`List.flatten` で明示的に連結する。
+逆元対の例では有限リストに対する実行を定義し、`keep`・`bind`・`mapWithProof` と
+その汎用的な証明への展開を検査する。詳しい型と対応は [設計例](../proof-brevity.md) に記す。
 
 ## マッチャーの対象型・残りの型・証拠
 
@@ -156,6 +177,10 @@ exhaustive by coverage
   閉性・対合・固定点の不在の引き継ぎと要素数の減少は `pair_remainder` で証明する。
 - 群の語：`w = pre ++ g :: g⁻¹ :: post`。否定の腕ではこの分解の不成立。
   積の保存は `cancel_pair`、停止に使う長さの減少は帰納法の腕で証明する。
+- 逆元対の全候補：`w = pre ++ g :: g⁻¹ :: (mid ++ k :: k⁻¹ :: post)`。
+  2箇所の選択の証拠を組み合わせ、結果に積の保存と長さが4減る証明を添える。
+  任意の n 箇所では、残りについての `GoodMany n` の証拠を再帰呼出しから受け取り、
+  `extend_good` で次の段階へ渡す。証拠を除いたリストとの等式と、任意の個数の分解の完全性も証明する。
 - 隣接する同一要素の消去：2つの証明から得た `(p,a,s,q,b,t)` を同時に照合する。
   共通の語の等式は `p ++ a :: a :: s = q ++ b :: b :: t`。
   各腕の6成分の等式と束縛値を `AdjacentCancellation.CutPatterns` で定める。

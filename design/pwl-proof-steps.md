@@ -13,6 +13,7 @@
 | 有限置換 | [全文](examples/lean/DesignExamples/Permutations.lean) | [全文](examples/pmop/DesignExamples/Permutations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/Permutations.lean) |
 | 歩道と道 | [全文](examples/lean/DesignExamples/WalkPaths.lean) | [全文](examples/pmop/DesignExamples/WalkPaths.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkPaths.lean) |
 | 隣接する同一要素の消去の局所合流性 | [全文](examples/lean/DesignExamples/LocalConfluence.lean) | [全文](examples/pmop/DesignExamples/LocalConfluence.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/LocalConfluence.lean) |
+| 離れた逆元対の全候補と任意の個数への拡張 | [全文](examples/lean/DesignExamples/TwoCancellations.lean) | [全文](examples/pmop/DesignExamples/TwoCancellations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/TwoCancellations.lean) |
 
 `$x` は値を束縛し、`#e` は式 e との等式を要求する。
 `::` は要素と残りへの分解、`++` は列を前後に分割するパターンである。
@@ -24,6 +25,12 @@
 同じ語から得た2つの書換えの位置関係を分類し、両結果の共通の消去先を構成する。
 この例では、同じ補助補題を用いる Lean 版も短く書けるため、証明全体の短縮は確認できない。
 分解の条件をパターンで読めることと、証明の記述量が減ることは、別々に評価する。
+
+[短縮につながる条件](proof-brevity.md) では、すべてのマッチ結果に同じ推論を適用する例を扱う。
+選択の結果に分解の等式と条件の証拠を保持し、逆元対の消去について積の保存と長さの減少を示す。
+任意の n 箇所への拡張では、残りについての証明を再帰関数の結果の型に含める。
+所属からの証拠の復元と独立した帰納法の記述を省けるが、通常の列挙との対応証明も含む
+現在の完全なコードでは総量は減らない。Lean の自動化でも短い証明が得られることを併記する。
 
 ## 1. 群の語から隣接する逆元を消去する
 
@@ -233,6 +240,7 @@ theorem exists_reduced (w : List G) :
 | 有限置換 | 互換の積としての表現 | a → b、c → a、残りのグラフ | 小さい置換の構成、合成の等式 |
 | 歩道と道 | 同じ始点・終点を持つ道の存在 | 同じ頂点の2回の出現と前後の列 | 辺の証拠の引き継ぎ、長さの減少 |
 | [局所合流性](pwl-local-confluence.md) | 2つの書換え結果の共通の消去先 | 同じ語に対する2箇所の一致・重なり・分離 | 一致時の反射性、分離時の残る組の消去 |
+| [逆元対の全候補](proof-brevity.md) | すべての消去結果の積と長さ | 順序を保つ、互いに重ならない逆元対とその証拠 | 各結果の同じ等式変形、再帰結果の証拠の引き継ぎ |
 
 これらには `multiset` と `list` の汎用的な分解を使える。
 数学的な性質は、マッチから得た関係と、各分野の補題を組み合わせて証明する。
@@ -259,3 +267,5 @@ theorem exists_reduced (w : List G) :
 一般の定理を機械的に検査する。対合は任意の有限部分集合、群は非可換な群も含み、
 置換は任意の有限置換、歩道は任意の有向・無向の辺の関係を扱う。
 提案言語の直接の型検査には、[設計上の課題](review.md) に記す変換と核の実装が必要である。
+逆元対の全候補については、等式の判定が可能な任意の群・有限語・消去する個数に対する証明を Lean に置く。
+通常の列挙と証拠を保持する列挙が、順序と重複を含めて等しいことも検査する。
