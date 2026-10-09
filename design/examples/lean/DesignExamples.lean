@@ -11,3 +11,5 @@ import DesignExamples.PatternStyle.Pigeonhole
 import DesignExamples.PatternStyle.ErdosSzekeres
 import DesignExamples.PatternStyle.LocalConfluence
 import DesignExamples.PatternStyle.TwoCancellations
+import DesignExamples.PatternStyle.Resolution
+import DesignExamples.PatternStyle.WalkInsertion

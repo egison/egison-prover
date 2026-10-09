@@ -15,6 +15,8 @@
 | 群の語の逆元消去・簡約 | [GroupWords.lean](lean/DesignExamples/GroupWords.lean) | [GroupWords.pmop](pmop/DesignExamples/GroupWords.pmop) |
 | 有限置換の互換への分解 | [Permutations.lean](lean/DesignExamples/Permutations.lean) | [Permutations.pmop](pmop/DesignExamples/Permutations.pmop) |
 | 歩道から道への変換 | [WalkPaths.lean](lean/DesignExamples/WalkPaths.lean) | [WalkPaths.pmop](pmop/DesignExamples/WalkPaths.pmop) |
+| 解消規則・有限導出の正しさと充足不可能性 | [Resolution.lean](lean/DesignExamples/Resolution.lean) | [Resolution.pmop](pmop/DesignExamples/Resolution.pmop) |
+| 閉じた歩道の挿入 | [WalkInsertion.lean](lean/DesignExamples/WalkInsertion.lean) | [WalkInsertion.pmop](pmop/DesignExamples/WalkInsertion.pmop) |
 | 隣接する同一要素の消去の局所合流性・合流性 | [LocalConfluence.lean](lean/DesignExamples/LocalConfluence.lean) | [LocalConfluence.pmop](pmop/DesignExamples/LocalConfluence.pmop) |
 | 離れた逆元対の全候補の正しさ・任意の個数への拡張 | [TwoCancellations.lean](lean/DesignExamples/TwoCancellations.lean) | [TwoCancellations.pmop](pmop/DesignExamples/TwoCancellations.pmop) |
 | 一般の鳩の巣原理 | [Pigeonhole.lean](lean/DesignExamples/Pigeonhole.lean) | [Pigeonhole.pmop](pmop/DesignExamples/Pigeonhole.pmop) |
@@ -37,6 +39,15 @@
 [PatternStyle/TwoCancellations.lean](lean/DesignExamples/PatternStyle/TwoCancellations.lean) で検査する。
 [わかりやすさと記述量の比較](../proof-brevity.md) に、Ramsey を基準とする評価条件、
 補助証明を含む費用と自動化した Lean の比較対象を記す。
+
+[構造と推論が見える例](../pwl-readable-proofs.md) に、解消規則と閉じた歩道の挿入を置く。
+それぞれ [ResolutionCommon.lean](lean/DesignExamples/ResolutionCommon.lean) /
+[ResolutionCommon.pmop](pmop/DesignExamples/ResolutionCommon.pmop)、
+[WalkInsertionCommon.lean](lean/DesignExamples/WalkInsertionCommon.lean) /
+[WalkInsertionCommon.pmop](pmop/DesignExamples/WalkInsertionCommon.pmop) の全定義と補助証明を共有する。
+[PatternStyle/Resolution.lean](lean/DesignExamples/PatternStyle/Resolution.lean) と
+[PatternStyle/WalkInsertion.lean](lean/DesignExamples/PatternStyle/WalkInsertion.lean) に
+関係と腕を明示した検査用の版を置く。
 
 ## 検査方法と依存関係
 
@@ -98,6 +109,8 @@ Lean の `decide` による証明を用いる。`native_decide` は使わない�
 `?(P)` と `where P` は命題 `P` の証拠を要求する。
 実行時にこれらを判定するには、判定可能性も必要になる。
 `::` は `++` より強く結び付き、どちらも右に結合する。
+`Literal.pos $p` と `Literal.neg #p` のような帰納型のコンストラクタパターンは、
+そのコンストラクタと引数の型に従って照合する。解消規則のリテラルでは引数の型は V である。
 
 `e matches P as M` は、P が束縛する値と、それらが M の関係を満たす証拠の存在を表す。
 この存在命題の型と、腕が受け取る証拠の型を、以下の関係で定める。
@@ -173,6 +186,12 @@ exhaustive by coverage
 - 走行列と歩道の重複：`対象 = pre ++ q :: (mid ++ q :: post)`。
   2位置は `pre.length` と `pre.length + mid.length + 1` で、必ず前者が小さい。
   走行列から入力語へ移る証明は `split_to_loop` にすべて記述する。
+- 解消規則：`C = pos p ::ₘ xs`、`D = neg p ::ₘ ys`、`R = xs + ys`。
+  p の真偽による場合分けで、二つの前提から結論の節が真になることを示す。
+  同じ規則を有限導出についての帰納法で使い、空の節の導出から充足不可能性を示す。
+- 閉じた歩道の挿入：`w = pre ++ v :: post` と `loop = v :: (mid ++ [v])`。
+  一頂点の `loop = [v]` の腕も含める。前半、閉じた歩道、後半の接続を証明し、
+  出力の構成関係、始点・終点と辺の保存、長さの関係を結果に含める。
 - 対合の対：`S.val = x :: σ x :: R`。
   `pair_evidence` が所属、相異性、R と2要素を除いた集合の多重集合との等式を導く。
   閉性・対合・固定点の不在の引き継ぎと要素数の減少は `pair_remainder` で証明する。

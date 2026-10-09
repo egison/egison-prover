@@ -1,0 +1,84 @@
+-- 両版で共有する完全な定義と証明。依存関係は ../../README.md を参照。
+import DesignExamples.WalkPaths
+
+namespace DesignExamples.WalkInsertion
+
+open DesignExamples.WalkPaths
+
+variable {A : Type*}
+
+-- 一頂点の閉じた歩道も許す。挿入する位置と、出来上がる列を関係として記す。
+def Inserted (v : A) (w loop r : List A) : Prop :=
+  ∃ pre post, w = pre ++ v :: post ∧
+    ((loop = [v] ∧ r = w) ∨
+      ∃ mid, loop = v :: (mid ++ [v]) ∧ r = pre ++ v :: (mid ++ v :: post))
+
+theorem closed_split (E : A → A → Prop) {v : A} {loop : List A}
+    (h : Walk E v v loop) : loop = [v] ∨ ∃ mid, loop = v :: (mid ++ [v]) := by
+  cases loop with
+  | nil => simp [Walk] at h
+  | cons a tail =>
+    have ha : a = v := Option.some.inj h.1
+    subst a
+    rcases List.eq_nil_or_concat' tail with rfl | ⟨mid, b, rfl⟩
+    · exact Or.inl rfl
+    · have hb : b = v := by
+        simpa [List.getLast?_cons, List.getLast?_append] using h.2.1
+      subst b
+      exact Or.inr ⟨mid, rfl⟩
+
+def InsertionCases (v : A) (w loop : List A) : Prop :=
+  (∃ pre post, w = pre ++ v :: post ∧ loop = [v]) ∨
+  (∃ pre post mid, w = pre ++ v :: post ∧ loop = v :: (mid ++ [v]))
+
+-- 網羅性は、共有頂点への所属と、閉じた歩道の両端から導く。
+theorem insertion_cases (E : A → A → Prop) {v : A} {w loop : List A}
+    (hv : v ∈ w) (hc : Walk E v v loop) : InsertionCases v w loop := by
+  obtain ⟨pre, post, rfl⟩ := List.mem_iff_append.mp hv
+  rcases closed_split E hc with h | ⟨mid, h⟩
+  · exact Or.inl ⟨pre, post, rfl, h⟩
+  · exact Or.inr ⟨pre, post, mid, rfl, h⟩
+
+theorem insert_chain (E : A → A → Prop) (pre : List A) (v : A) (mid post : List A)
+    (hw : (pre ++ v :: post).IsChain E) (hc : (v :: (mid ++ [v])).IsChain E) :
+    (pre ++ v :: (mid ++ v :: post)).IsChain E := by
+  have hp := (List.isChain_split.mp hw).1
+  have hs := (List.isChain_split.mp hw).2
+  have hi : ((v :: mid) ++ v :: post).IsChain E :=
+    List.isChain_split.mpr ⟨by simpa only [List.cons_append] using hc, hs⟩
+  exact List.isChain_split.mpr ⟨hp, by simpa only [List.cons_append] using hi⟩
+
+theorem insert_walk (E : A → A → Prop) (s t : A)
+    (pre : List A) (v : A) (mid post : List A)
+    (hw : Walk E s t (pre ++ v :: post)) (hc : Walk E v v (v :: (mid ++ [v]))) :
+    Walk E s t (pre ++ v :: (mid ++ v :: post)) := by
+  refine ⟨?_, ?_, insert_chain E pre v mid post hw.2.2 hc.2.2⟩
+  · cases pre <;> simpa using hw.1
+  · cases post with
+    | nil => simpa [List.getLast?_cons, List.getLast?_append] using hw.2.1
+    | cons a l => simpa [List.getLast?_cons, List.getLast?_append] using hw.2.1
+
+theorem insert_length (pre : List A) (v : A) (mid post : List A) :
+    (pre ++ v :: (mid ++ v :: post)).length + 1 =
+      (pre ++ v :: post).length + (v :: (mid ++ [v])).length := by
+  simp only [List.length_append, List.length_cons, List.length_nil]
+  omega
+
+def exampleEdges (a b : Nat) : Prop :=
+  (a, b) ∈ ({(0, 1), (1, 4), (1, 2), (2, 3), (3, 1)} : Finset (Nat × Nat))
+
+theorem example_walk : Walk exampleEdges 0 4 [0, 1, 4] := by
+  simp [Walk, exampleEdges, List.isChain_cons_cons]
+
+theorem example_loop : Walk exampleEdges 1 1 [1, 2, 3, 1] := by
+  simp [Walk, exampleEdges, List.isChain_cons_cons]
+
+theorem example_insertion :
+    Inserted 1 [0, 1, 4] [1, 2, 3, 1] [0, 1, 2, 3, 1, 4] ∧
+    Walk exampleEdges 0 4 [0, 1, 2, 3, 1, 4] ∧
+    [0, 1, 2, 3, 1, 4].length + 1 = [0, 1, 4].length + [1, 2, 3, 1].length := by
+  exact ⟨⟨[0], [4], rfl, Or.inr ⟨[2, 3], rfl, rfl⟩⟩,
+    insert_walk exampleEdges 0 4 [0] 1 [2, 3] [4] example_walk example_loop,
+    insert_length [0] 1 [2, 3] [4]⟩
+
+end DesignExamples.WalkInsertion

@@ -1,0 +1,54 @@
+import Mathlib
+
+namespace DesignExamples.Resolution
+
+inductive Literal (V : Type*) where
+  | pos : V → Literal V
+  | neg : V → Literal V
+  deriving DecidableEq
+
+abbrev Clause (V : Type*) := Multiset (Literal V)
+abbrev Formula (V : Type*) := Multiset (Clause V)
+
+variable {V : Type*}
+
+def Holds (σ : V → Prop) : Literal V → Prop
+  | .pos p => σ p
+  | .neg p => ¬σ p
+
+def ClauseHolds (σ : V → Prop) (C : Clause V) : Prop := ∃ l ∈ C, Holds σ l
+
+def FormulaHolds (σ : V → Prop) (F : Formula V) : Prop := ∀ C ∈ F, ClauseHolds σ C
+
+theorem clause_cons (σ : V → Prop) (l : Literal V) (C : Clause V) :
+    ClauseHolds σ (l ::ₘ C) ↔ Holds σ l ∨ ClauseHolds σ C := by
+  simp [ClauseHolds, or_and_right, exists_or]
+
+theorem clause_add (σ : V → Prop) (C D : Clause V) :
+    ClauseHolds σ (C + D) ↔ ClauseHolds σ C ∨ ClauseHolds σ D := by
+  simp [ClauseHolds, or_and_right, exists_or]
+
+def Resolves (C D R : Clause V) : Prop :=
+  ∃ p xs ys, C = Literal.pos p ::ₘ xs ∧ D = Literal.neg p ::ₘ ys ∧ R = xs + ys
+
+-- 導出の規則だけを定義する。規則の正しさは主証明で示す。
+inductive Derivable (F : Formula V) : Clause V → Prop where
+  | assumption {C} : C ∈ F → Derivable F C
+  | resolve {C D R} : Derivable F C → Derivable F D → Resolves C D R → Derivable F R
+
+def exampleFormula : Formula (Fin 2) :=
+  (Literal.pos 0 ::ₘ 0) ::ₘ
+  (Literal.neg 0 ::ₘ Literal.pos 1 ::ₘ 0) ::ₘ (Literal.neg 1 ::ₘ 0) ::ₘ 0
+
+theorem example_derivation : Derivable exampleFormula 0 := by
+  have hp : Derivable exampleFormula (Literal.pos 0 ::ₘ 0) :=
+    .assumption (by simp [exampleFormula])
+  have hpq : Derivable exampleFormula (Literal.neg 0 ::ₘ Literal.pos 1 ::ₘ 0) :=
+    .assumption (by simp [exampleFormula])
+  have hnq : Derivable exampleFormula (Literal.neg 1 ::ₘ 0) :=
+    .assumption (by simp [exampleFormula])
+  have hq : Derivable exampleFormula (Literal.pos 1 ::ₘ 0) :=
+    .resolve hp hpq ⟨0, 0, Literal.pos 1 ::ₘ 0, rfl, rfl, by simp⟩
+  exact .resolve hq hnq ⟨1, 0, 0, rfl, rfl, rfl⟩
+
+end DesignExamples.Resolution

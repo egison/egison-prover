@@ -1,0 +1,41 @@
+-- 完全な提案ソース。構文と、検査用の手動展開は ../../README.md を参照。
+import DesignExamples.ResolutionCommon
+
+namespace DesignExamples.Resolution
+
+open Literal
+
+variable {V : Type*}
+
+theorem resolution_sound (σ : V → Prop) {C D R : Clause V} (h : Resolves C D R)
+    (hC : ClauseHolds σ C) (hD : ClauseHolds σ D) : ClauseHolds σ R := by
+  classical
+  match heq : (C, D, R) as
+      (multiset (Literal V), multiset (Literal V), multiset (Literal V)) with
+  | (pos $p :: $xs, neg #p :: $ys, #(xs + ys)) =>
+    subst C D R
+    by_cases hp : σ p
+    · apply (clause_add σ _ _).mpr
+      right
+      simpa [clause_cons, Holds, hp] using hD
+    · apply (clause_add σ _ _).mpr
+      left
+      simpa [clause_cons, Holds, hp] using hC
+  exhaustive by h
+
+theorem derivable_sound (σ : V → Prop) {F : Formula V} {C : Clause V}
+    (h : Derivable F C) (hF : FormulaHolds σ F) : ClauseHolds σ C := by
+  induction h with
+  | assumption hmem => exact hF _ hmem
+  | resolve hC hD hrel ihC ihD => exact resolution_sound σ hrel ihC ihD
+
+theorem empty_clause_unsatisfiable {F : Formula V} (h : Derivable F 0) :
+    ¬∃ σ, FormulaHolds σ F := by
+  rintro ⟨σ, hF⟩
+  have hc := derivable_sound σ h hF
+  simp [ClauseHolds] at hc
+
+theorem example_unsatisfiable : ¬∃ σ, FormulaHolds σ exampleFormula :=
+  empty_clause_unsatisfiable example_derivation
+
+end DesignExamples.Resolution

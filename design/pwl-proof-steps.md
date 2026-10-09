@@ -12,6 +12,8 @@
 | 群の語 | [全文](examples/lean/DesignExamples/GroupWords.lean) | [全文](examples/pmop/DesignExamples/GroupWords.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/GroupWords.lean) |
 | 有限置換 | [全文](examples/lean/DesignExamples/Permutations.lean) | [全文](examples/pmop/DesignExamples/Permutations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/Permutations.lean) |
 | 歩道と道 | [全文](examples/lean/DesignExamples/WalkPaths.lean) | [全文](examples/pmop/DesignExamples/WalkPaths.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkPaths.lean) |
+| 解消規則と有限導出 | [全文](examples/lean/DesignExamples/Resolution.lean) | [全文](examples/pmop/DesignExamples/Resolution.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/Resolution.lean) |
+| 閉じた歩道の挿入 | [全文](examples/lean/DesignExamples/WalkInsertion.lean) | [全文](examples/pmop/DesignExamples/WalkInsertion.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkInsertion.lean) |
 | 隣接する同一要素の消去の局所合流性 | [全文](examples/lean/DesignExamples/LocalConfluence.lean) | [全文](examples/pmop/DesignExamples/LocalConfluence.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/LocalConfluence.lean) |
 | 離れた逆元対の全候補と任意の個数への拡張 | [全文](examples/lean/DesignExamples/TwoCancellations.lean) | [全文](examples/pmop/DesignExamples/TwoCancellations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/TwoCancellations.lean) |
 
@@ -32,6 +34,10 @@
 任意の n 箇所への拡張では、残りについての証明を再帰関数の結果の型に含める。
 所属からの証拠の復元と独立した帰納法の記述を省けるが、通常の列挙との対応証明も含む
 現在の完全なコードでは総量は減らない。Lean の自動化でも短い証明が得られることを併記する。
+
+[構造と推論が見える例](pwl-readable-proofs.md) には、解消規則と閉じた歩道の挿入を置く。
+相補的なリテラルを選んで残りを合わせる推論と、共有頂点で歩道を接続する構成を、
+パターンと構成結果で直接対応付ける。補助部と具体例も両版に含める。
 
 ## 1. 群の語から隣接する逆元を消去する
 
@@ -240,6 +246,8 @@ theorem exists_reduced (w : List G) :
 | 群の語 | 積の等式、簡約処理の値の保存 | 逆元の組と前後の列 | 結合法則、逆元の法則、長さの減少 |
 | 有限置換 | 互換の積としての表現 | a → b、c → a、残りのグラフ | 小さい置換の構成、合成の等式 |
 | 歩道と道 | 同じ始点・終点を持つ道の存在 | 同じ頂点の2回の出現と前後の列 | 辺の証拠の引き継ぎ、長さの減少 |
+| 解消規則 | 解消と有限導出の正しさ、空の節による充足不可能性 | 同じ変数の正・負のリテラルと残りの節 | 変数の真偽による場合分け、導出の帰納仮定の適用 |
+| 閉じた歩道の挿入 | 構成関係と、始点・終点を保つ歩道の存在 | 元の歩道の途中と閉じた歩道の両端の同じ頂点 | 前半・閉じた歩道・後半の接続、長さの増加 |
 | [局所合流性](pwl-local-confluence.md) | 2つの書換え結果の共通の消去先 | 同じ語に対する2箇所の一致・重なり・分離 | 一致時の反射性、分離時の残る組の消去 |
 | [逆元対の全候補](proof-brevity.md) | すべての消去結果の積と長さ | 順序を保つ、互いに重ならない逆元対とその証拠 | 各結果の同じ等式変形、再帰結果の証拠の引き継ぎ |
 
