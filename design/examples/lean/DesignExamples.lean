@@ -13,3 +13,4 @@ import DesignExamples.PatternStyle.LocalConfluence
 import DesignExamples.PatternStyle.TwoCancellations
 import DesignExamples.PatternStyle.Resolution
 import DesignExamples.PatternStyle.WalkInsertion
+import DesignExamples.PatternStyle.DeterminantProduct

@@ -17,6 +17,7 @@
 | 歩道から道への変換 | [WalkPaths.lean](lean/DesignExamples/WalkPaths.lean) | [WalkPaths.pmop](pmop/DesignExamples/WalkPaths.pmop) |
 | 解消規則・有限導出の正しさと充足不可能性 | [Resolution.lean](lean/DesignExamples/Resolution.lean) | [Resolution.pmop](pmop/DesignExamples/Resolution.pmop) |
 | 閉じた歩道の挿入 | [WalkInsertion.lean](lean/DesignExamples/WalkInsertion.lean) | [WalkInsertion.pmop](pmop/DesignExamples/WalkInsertion.pmop) |
+| 行列式の積の公式と長方形行列での項の打ち消し | [DeterminantProduct.lean](lean/DesignExamples/DeterminantProduct.lean) | [DeterminantProduct.pmop](pmop/DesignExamples/DeterminantProduct.pmop) |
 | 隣接する同一要素の消去の局所合流性・合流性 | [LocalConfluence.lean](lean/DesignExamples/LocalConfluence.lean) | [LocalConfluence.pmop](pmop/DesignExamples/LocalConfluence.pmop) |
 | 離れた逆元対の全候補の正しさ・任意の個数への拡張 | [TwoCancellations.lean](lean/DesignExamples/TwoCancellations.lean) | [TwoCancellations.pmop](pmop/DesignExamples/TwoCancellations.pmop) |
 | 一般の鳩の巣原理 | [Pigeonhole.lean](lean/DesignExamples/Pigeonhole.lean) | [Pigeonhole.pmop](pmop/DesignExamples/Pigeonhole.pmop) |
@@ -48,6 +49,14 @@
 [PatternStyle/Resolution.lean](lean/DesignExamples/PatternStyle/Resolution.lean) と
 [PatternStyle/WalkInsertion.lean](lean/DesignExamples/PatternStyle/WalkInsertion.lean) に
 関係と腕を明示した検査用の版を置く。
+
+行列式の積の公式では、[DeterminantProductCommon.lean](lean/DesignExamples/DeterminantProductCommon.lean) /
+[DeterminantProductCommon.pmop](pmop/DesignExamples/DeterminantProductCommon.pmop) が、同じ像を持つ
+二つの入力の関係と、その存在を示す補題を定める。
+[PatternStyle/DeterminantProduct.lean](lean/DesignExamples/PatternStyle/DeterminantProduct.lean) は、
+この関係から2添字を取り出し、項を打ち消して積の公式を導く全証明を含む。
+証明は Mathlib の行列式の証明に基づく。改変部分の著作権表示をソースに残し、
+ライセンスを [LICENSE-Mathlib](LICENSE-Mathlib) に置く。
 
 ## 検査方法と依存関係
 
@@ -192,6 +201,9 @@ exhaustive by coverage
 - 閉じた歩道の挿入：`w = pre ++ v :: post` と `loop = v :: (mid ++ [v])`。
   一頂点の `loop = [v]` の腕も含める。前半、閉じた歩道、後半の接続を証明し、
   出力の構成関係、始点・終点と辺の保存、長さの関係を結果に含める。
+- 行列式の積の公式：`i ≠ j`、`p i = k`、`p j = k`。
+  `SharedImage p` がこの存在を表す。2位置を交換して積を保ち、符号を反転することを
+  `noninjective_cancel` の腕で証明し、展開後の和から積の公式を導く。
 - 対合の対：`S.val = x :: σ x :: R`。
   `pair_evidence` が所属、相異性、R と2要素を除いた集合の多重集合との等式を導く。
   閉性・対合・固定点の不在の引き継ぎと要素数の減少は `pair_remainder` で証明する。

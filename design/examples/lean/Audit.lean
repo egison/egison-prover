@@ -100,3 +100,10 @@ import DesignExamples
 #print axioms DesignExamples.WalkInsertion.example_walk
 #print axioms DesignExamples.WalkInsertion.example_loop
 #print axioms DesignExamples.WalkInsertion.example_insertion
+#print axioms DesignExamples.DeterminantProduct.shared_image_of_not_injective
+#print axioms DesignExamples.DeterminantProduct.noninjective_cancel
+#print axioms DesignExamples.DeterminantProduct.nonbijective_cancel
+#print axioms DesignExamples.DeterminantProduct.det_product
+#print axioms DesignExamples.PatternStyle.DeterminantProduct.noninjective_cancel
+#print axioms DesignExamples.PatternStyle.DeterminantProduct.nonbijective_cancel
+#print axioms DesignExamples.PatternStyle.DeterminantProduct.det_product

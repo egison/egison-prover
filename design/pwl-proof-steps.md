@@ -14,6 +14,7 @@
 | 歩道と道 | [全文](examples/lean/DesignExamples/WalkPaths.lean) | [全文](examples/pmop/DesignExamples/WalkPaths.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkPaths.lean) |
 | 解消規則と有限導出 | [全文](examples/lean/DesignExamples/Resolution.lean) | [全文](examples/pmop/DesignExamples/Resolution.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/Resolution.lean) |
 | 閉じた歩道の挿入 | [全文](examples/lean/DesignExamples/WalkInsertion.lean) | [全文](examples/pmop/DesignExamples/WalkInsertion.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkInsertion.lean) |
+| 行列式の積の公式 | [全文](examples/lean/DesignExamples/DeterminantProduct.lean) | [全文](examples/pmop/DesignExamples/DeterminantProduct.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/DeterminantProduct.lean) |
 | 隣接する同一要素の消去の局所合流性 | [全文](examples/lean/DesignExamples/LocalConfluence.lean) | [全文](examples/pmop/DesignExamples/LocalConfluence.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/LocalConfluence.lean) |
 | 離れた逆元対の全候補と任意の個数への拡張 | [全文](examples/lean/DesignExamples/TwoCancellations.lean) | [全文](examples/pmop/DesignExamples/TwoCancellations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/TwoCancellations.lean) |
 
@@ -38,6 +39,8 @@
 [構造と推論が見える例](pwl-readable-proofs.md) には、解消規則と閉じた歩道の挿入を置く。
 相補的なリテラルを選んで残りを合わせる推論と、共有頂点で歩道を接続する構成を、
 パターンと構成結果で直接対応付ける。補助部と具体例も両版に含める。
+同じ文書の行列式の積の公式では、展開後に現れる写像の同じ像を持つ2入力を選ぶ。
+その2位置を交換して符号が反対の項を打ち消し、残る和を整理して等式を導く。
 
 ## 1. 群の語から隣接する逆元を消去する
 
