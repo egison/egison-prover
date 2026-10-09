@@ -15,6 +15,9 @@
 | 解消規則と有限導出 | [全文](examples/lean/DesignExamples/Resolution.lean) | [全文](examples/pmop/DesignExamples/Resolution.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/Resolution.lean) |
 | 閉じた歩道の挿入 | [全文](examples/lean/DesignExamples/WalkInsertion.lean) | [全文](examples/pmop/DesignExamples/WalkInsertion.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkInsertion.lean) |
 | 行列式の積の公式 | [全文](examples/lean/DesignExamples/DeterminantProduct.lean) | [全文](examples/pmop/DesignExamples/DeterminantProduct.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/DeterminantProduct.lean) |
+| Cauchy–Binet の公式全体 | [全文](examples/lean/DesignExamples/CauchyBinet.lean) | [全文](examples/pmop/DesignExamples/CauchyBinet.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/CauchyBinet.lean) |
+| 重み付き LGV の公式全体 | [全文](examples/lean/DesignExamples/LGV.lean) | [全文](examples/pmop/DesignExamples/LGV.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/LGV.lean) |
+| オイラー閉路の存在・必要十分条件 | [全文](examples/lean/DesignExamples/EulerCircuit.lean) | [全文](examples/pmop/DesignExamples/EulerCircuit.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/EulerCircuit.lean) |
 | 隣接する同一要素の消去の局所合流性 | [全文](examples/lean/DesignExamples/LocalConfluence.lean) | [全文](examples/pmop/DesignExamples/LocalConfluence.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/LocalConfluence.lean) |
 | 離れた逆元対の全候補と任意の個数への拡張 | [全文](examples/lean/DesignExamples/TwoCancellations.lean) | [全文](examples/pmop/DesignExamples/TwoCancellations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/TwoCancellations.lean) |
 
@@ -251,6 +254,9 @@ theorem exists_reduced (w : List G) :
 | 歩道と道 | 同じ始点・終点を持つ道の存在 | 同じ頂点の2回の出現と前後の列 | 辺の証拠の引き継ぎ、長さの減少 |
 | 解消規則 | 解消と有限導出の正しさ、空の節による充足不可能性 | 同じ変数の正・負のリテラルと残りの節 | 変数の真偽による場合分け、導出の帰納仮定の適用 |
 | 閉じた歩道の挿入 | 構成関係と、始点・終点を保つ歩道の存在 | 元の歩道の途中と閉じた歩道の両端の同じ頂点 | 前半・閉じた歩道・後半の接続、長さの増加 |
+| Cauchy–Binet | 部分行列の行列式の積による公式 | 同じ中間添字を使う2位置 | 相殺後の単射の選択を像と置換へ整理する |
+| LGV | 重み付きの道の組による行列式の公式 | 決めた共有頂点と二つの道の前後 | 選択の保存、重みの保存と符号の反転から相殺する |
+| オイラー閉路 | 全辺を1回ずつ通る閉じた歩道の存在・必要十分条件 | 未使用の辺につながる頂点での歩道の切断 | 残りの次数の偶数性、辺を繰り返さない挿入、最長性との矛盾 |
 | [局所合流性](pwl-local-confluence.md) | 2つの書換え結果の共通の消去先 | 同じ語に対する2箇所の一致・重なり・分離 | 一致時の反射性、分離時の残る組の消去 |
 | [逆元対の全候補](proof-brevity.md) | すべての消去結果の積と長さ | 順序を保つ、互いに重ならない逆元対とその証拠 | 各結果の同じ等式変形、再帰結果の証拠の引き継ぎ |
 

@@ -1,0 +1,1886 @@
+-- Shared mathematical definitions and proofs; no new pattern syntax.
+/-
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+Adapted from faabian/algebraic-combinatorics, AlgebraicCombinatorics/Determinants/LGV2.lean.
+Source: https://github.com/faabian/algebraic-combinatorics/tree/3b333089a7a7cd6478065fcfbd91c2b566fccac0
+License: CC BY-NC 4.0; see design/examples/LICENSE-AlgebraicCombinatorics.
+The copied and adapted LGV proofs retain that license, separately from the other examples.
+-/
+import Mathlib
+
+set_option backward.isDefEq.respectTransparency false
+
+open Finset BigOperators Matrix
+
+namespace DesignExamples.LGV
+
+/-!
+## Digraph Definitions
+
+We work with simple digraphs that are path-finite and acyclic.
+-/
+
+/-- A simple digraph with vertex set V.
+    Convention conv.lgv.digraph(d): A simple digraph has arcs as pairs of distinct vertices. -/
+structure SimpleDigraph (V : Type*) where
+  /-- The arc relation: `arc u v` means there is an arc from `u` to `v` -/
+  arc : V → V → Prop
+  /-- No self-loops -/
+  arc_irrefl : ∀ v, ¬arc v v
+
+namespace SimpleDigraph
+
+variable {V : Type*} [DecidableEq V]
+
+/-- A path in a digraph is a list of vertices where consecutive vertices are connected by arcs.
+    A path may contain 0 arcs (in which case start and end are identical). -/
+structure Path (D : SimpleDigraph V) where
+  /-- The vertices of the path, in order -/
+  vertices : List V
+  /-- The path is nonempty -/
+  nonempty : vertices ≠ []
+  /-- Consecutive vertices are connected by arcs -/
+  arcs_valid : ∀ i : ℕ, ∀ hi : i + 1 < vertices.length, D.arc (vertices.get ⟨i, Nat.lt_of_succ_lt hi⟩)
+      (vertices.get ⟨i + 1, hi⟩)
+
+/-- The starting vertex of a path -/
+def Path.start {D : SimpleDigraph V} (p : Path D) : V :=
+  p.vertices.head p.nonempty
+
+/-- The ending vertex of a path -/
+def Path.finish {D : SimpleDigraph V} (p : Path D) : V :=
+  p.vertices.getLast p.nonempty
+
+omit [DecidableEq V] in
+/-- Simp lemma for `Path.start` on a constructed path -/
+@[simp] lemma Path.start_mk {D : SimpleDigraph V} (vs : List V) (hne : vs ≠ [])
+    (harcs : ∀ i : ℕ, ∀ hi : i + 1 < vs.length, D.arc (vs.get ⟨i, Nat.lt_of_succ_lt hi⟩)
+        (vs.get ⟨i + 1, hi⟩)) :
+    (Path.mk vs hne harcs).start = vs.head hne := rfl
+
+omit [DecidableEq V] in
+/-- Simp lemma for `Path.finish` on a constructed path -/
+@[simp] lemma Path.finish_mk {D : SimpleDigraph V} (vs : List V) (hne : vs ≠ [])
+    (harcs : ∀ i : ℕ, ∀ hi : i + 1 < vs.length, D.arc (vs.get ⟨i, Nat.lt_of_succ_lt hi⟩)
+        (vs.get ⟨i + 1, hi⟩)) :
+    (Path.mk vs hne harcs).finish = vs.getLast hne := rfl
+
+/-- A digraph is path-finite if there are only finitely many paths between any two vertices.
+    Convention conv.lgv.digraph(b) -/
+def IsPathFinite (D : SimpleDigraph V) : Prop :=
+  ∀ u v : V, Set.Finite {p : Path D | p.start = u ∧ p.finish = v}
+
+/-- A digraph is acyclic if it has no directed cycles.
+    Convention conv.lgv.digraph(c) -/
+def IsAcyclic (D : SimpleDigraph V) : Prop :=
+  ∀ p : Path D, p.start = p.finish → p.vertices.length = 1
+
+/-- Extract a subpath from index `i` to index `j` (inclusive).
+    The resulting path has `j - i + 1` vertices. -/
+def Path.subpath {D : SimpleDigraph V} (p : Path D) (i j : ℕ) (hij : i ≤ j)
+    (hj : j < p.vertices.length) : Path D where
+  vertices := (p.vertices.drop i).take (j - i + 1)
+  nonempty := by
+    simp only [ne_eq, List.take_eq_nil_iff, List.drop_eq_nil_iff]
+    push Not
+    constructor <;> omega
+  arcs_valid := by
+    intro k hk
+    simp only [List.length_take, List.length_drop] at hk
+    have hk' : k + 1 < min (j - i + 1) (p.vertices.length - i) := hk
+    have hk'' : k < j - i := by omega
+    simp only [List.getElem_take, List.getElem_drop, List.get_eq_getElem]
+    have hi' : i + k < p.vertices.length := by omega
+    have hi'' : i + k + 1 < p.vertices.length := by omega
+    convert p.arcs_valid (i + k) hi'' using 2 <;> simp [List.get_eq_getElem, Nat.add_assoc]
+
+omit [DecidableEq V] in
+/-- The start of a subpath is the vertex at index `i`. -/
+lemma Path.subpath_start {D : SimpleDigraph V} (p : Path D) (i j : ℕ) (hij : i ≤ j)
+    (hj : j < p.vertices.length) :
+    (p.subpath i j hij hj).start = p.vertices.get ⟨i, Nat.lt_of_le_of_lt hij hj⟩ := by
+  simp only [subpath, start, List.head_eq_getElem, List.getElem_take, List.getElem_drop,
+             List.get_eq_getElem, add_zero]
+
+omit [DecidableEq V] in
+/-- The finish of a subpath is the vertex at index `j`. -/
+lemma Path.subpath_finish {D : SimpleDigraph V} (p : Path D) (i j : ℕ) (hij : i ≤ j)
+    (hj : j < p.vertices.length) :
+    (p.subpath i j hij hj).finish = p.vertices.get ⟨j, hj⟩ := by
+  simp only [subpath, finish]
+  rw [List.getLast_eq_getElem]
+  simp only [List.length_take, List.length_drop, List.getElem_take, List.getElem_drop]
+  congr 1
+  omega
+
+omit [DecidableEq V] in
+/-- The length of a subpath from `i` to `j` is `j - i + 1`. -/
+lemma Path.subpath_length {D : SimpleDigraph V} (p : Path D) (i j : ℕ) (hij : i ≤ j)
+    (hj : j < p.vertices.length) :
+    (p.subpath i j hij hj).vertices.length = j - i + 1 := by
+  simp only [subpath, List.length_take, List.length_drop]
+  omega
+
+omit [DecidableEq V] in
+/-- In an acyclic digraph, all vertices on a path are distinct.
+    This follows from the fact that if a vertex appears twice, we could extract
+    a cycle (a path from that vertex back to itself). -/
+lemma Path.vertices_nodup_of_acyclic {D : SimpleDigraph V} (hac : D.IsAcyclic)
+    (p : Path D) : p.vertices.Nodup := by
+  rw [List.nodup_iff_injective_getElem]
+  intro ⟨i, hi⟩ ⟨j, hj⟩ hget
+  simp only [Fin.mk.injEq]
+  -- hget : p.vertices[i] = p.vertices[j]
+  -- WLOG i ≤ j
+  by_cases hij : i ≤ j
+  · -- Case i ≤ j: Extract subpath from i to j
+    let sp := p.subpath i j hij hj
+    -- This subpath starts and ends at the same vertex
+    have hcycle : sp.start = sp.finish := by
+      simp only [sp, subpath_start, subpath_finish, List.get_eq_getElem]
+      exact hget
+    -- By acyclicity, the subpath has length 1
+    have hlen1 := hac sp hcycle
+    -- The subpath length is j - i + 1
+    have hlen2 : sp.vertices.length = j - i + 1 := subpath_length p i j hij hj
+    -- So j - i + 1 = 1, i.e., j = i
+    omega
+  · -- Case j < i: symmetric
+    push Not at hij
+    have hij' : j ≤ i := le_of_lt hij
+    let sp := p.subpath j i hij' hi
+    have hcycle : sp.start = sp.finish := by
+      simp only [sp, subpath_start, subpath_finish, List.get_eq_getElem]
+      exact hget.symm
+    have hlen1 := hac sp hcycle
+    have hlen2 : sp.vertices.length = i - j + 1 := subpath_length p j i hij' hi
+    omega
+
+/-!
+### Conversion to Mathlib's Digraph
+
+`LGV.SimpleDigraph` is a specialized digraph structure that enforces irreflexivity
+(no self-loops). Mathlib's `Digraph` is more general and allows self-loops.
+
+We provide a conversion that forgets the irreflexivity proof, allowing use of
+Mathlib's digraph infrastructure when needed.
+-/
+
+variable {V : Type*}
+
+/-- Convert a `SimpleDigraph` to Mathlib's `Digraph`.
+    This forgets the irreflexivity proof but preserves the adjacency relation.
+
+    Note: LGV1.lean uses Mathlib's `Digraph` directly, while LGV2.lean uses this
+    `SimpleDigraph` structure. This conversion enables interoperability. -/
+def toDigraph (D : SimpleDigraph V) : Digraph V where
+  Adj := D.arc
+
+/-- The adjacency relation is preserved by `toDigraph`. -/
+@[simp]
+theorem toDigraph_adj (D : SimpleDigraph V) (u v : V) :
+    D.toDigraph.Adj u v ↔ D.arc u v := Iff.rfl
+
+end SimpleDigraph
+
+/-!
+## Path Weights
+
+For each arc, we assign a weight from a commutative ring K.
+The weight of a path is the product of its arc weights.
+-/
+
+variable {V : Type*} [DecidableEq V] {K : Type*} [CommRing K]
+
+/-- An arc weight function assigns a ring element to each arc.
+    Definition in Theorem thm.lgv.kpaths.wt -/
+def ArcWeight (D : SimpleDigraph V) (K : Type*) := (u v : V) → D.arc u v → K
+
+/-- Helper function to compute the product of arc weights along a vertex list.
+    Uses recursion on the structure of the list.
+    - For an empty list or single vertex, the weight is 1 (no arcs).
+    - For a list [v₀, v₁, ...], the weight is w(v₀, v₁) * (weight of [v₁, ...]). -/
+noncomputable def pathWeightAux {D : SimpleDigraph V} (w : ArcWeight D K)
+    (vertices : List V) (arcs_valid : ∀ i : ℕ, ∀ hi : i + 1 < vertices.length,
+      D.arc (vertices.get ⟨i, Nat.lt_of_succ_lt hi⟩) (vertices.get ⟨i + 1, hi⟩)) : K :=
+  match vertices with
+  | [] => 1
+  | [_] => 1
+  | v₀ :: v₁ :: rest =>
+    have h : 0 + 1 < (v₀ :: v₁ :: rest).length := by simp
+    have arc_proof : D.arc v₀ v₁ := by
+      have := arcs_valid 0 h
+      simp at this
+      exact this
+    have rest_arcs_valid : ∀ i : ℕ, ∀ hi : i + 1 < (v₁ :: rest).length,
+        D.arc ((v₁ :: rest).get ⟨i, Nat.lt_of_succ_lt hi⟩) ((v₁ :: rest).get ⟨i + 1, hi⟩) := by
+      intro i hi
+      have hi' : (i + 1) + 1 < (v₀ :: v₁ :: rest).length := by simp at hi ⊢; omega
+      have := arcs_valid (i + 1) hi'
+      simp only [List.length_cons, List.get_cons_succ] at this ⊢
+      exact this
+    w v₀ v₁ arc_proof * pathWeightAux w (v₁ :: rest) rest_arcs_valid
+
+/-- The weight of a path is the product of weights of its arcs.
+    w(p) := ∏_{a is an arc of p} w(a) -/
+noncomputable def pathWeight {D : SimpleDigraph V} (w : ArcWeight D K) (p : SimpleDigraph.Path D) : K :=
+  pathWeightAux w p.vertices p.arcs_valid
+
+omit [DecidableEq V] in
+/-- pathWeightAux is independent of the proof of arcs_valid (proof irrelevance). -/
+lemma pathWeightAux_proof_irrel {D : SimpleDigraph V} (w : ArcWeight D K)
+    (l : List V) (arcs1 arcs2 : ∀ i : ℕ, ∀ hi : i + 1 < l.length,
+      D.arc (l.get ⟨i, Nat.lt_of_succ_lt hi⟩) (l.get ⟨i + 1, hi⟩)) :
+    pathWeightAux w l arcs1 = pathWeightAux w l arcs2 := by
+  induction l with
+  | nil => rfl
+  | cons v vs ih =>
+    cases vs with
+    | nil => rfl
+    | cons v' vs' =>
+      unfold pathWeightAux
+      show (w v v' _ * pathWeightAux w (v' :: vs') _) = (w v v' _ * pathWeightAux w (v' :: vs') _)
+      rfl
+
+omit [DecidableEq V] in
+/-- pathWeightAux equality when lists are equal (combines substitution with proof irrelevance). -/
+lemma pathWeightAux_eq_of_eq {D : SimpleDigraph V} (w : ArcWeight D K) {l1 l2 : List V} (h : l1 = l2)
+    (arcs1 : ∀ i : ℕ, ∀ hi : i + 1 < l1.length,
+      D.arc (l1.get ⟨i, Nat.lt_of_succ_lt hi⟩) (l1.get ⟨i + 1, hi⟩))
+    (arcs2 : ∀ i : ℕ, ∀ hi : i + 1 < l2.length,
+      D.arc (l2.get ⟨i, Nat.lt_of_succ_lt hi⟩) (l2.get ⟨i + 1, hi⟩)) :
+    pathWeightAux w l1 arcs1 = pathWeightAux w l2 arcs2 := by
+  subst h
+  exact pathWeightAux_proof_irrel w l1 arcs1 arcs2
+
+omit [DecidableEq V] in
+/-- pathWeightAux of a singleton list is 1. -/
+@[simp]
+lemma pathWeightAux_singleton {D : SimpleDigraph V} (w : ArcWeight D K) (v : V)
+    (arcs_valid : ∀ i : ℕ, ∀ hi : i + 1 < [v].length,
+      D.arc ([v].get ⟨i, Nat.lt_of_succ_lt hi⟩) ([v].get ⟨i + 1, hi⟩)) :
+    pathWeightAux w [v] arcs_valid = 1 := rfl
+
+omit [DecidableEq V] in
+/-- pathWeightAux of a two-element list is just the arc weight. -/
+lemma pathWeightAux_pair {D : SimpleDigraph V} (w : ArcWeight D K) (u v : V)
+    (arcs_valid : ∀ i : ℕ, ∀ hi : i + 1 < [u, v].length,
+      D.arc ([u, v].get ⟨i, Nat.lt_of_succ_lt hi⟩) ([u, v].get ⟨i + 1, hi⟩)) :
+    pathWeightAux w [u, v] arcs_valid = w u v (arcs_valid 0 (by simp)) := by
+  unfold pathWeightAux
+  simp
+
+omit [DecidableEq V] in
+/-- pathWeightAux of a cons-cons list factors into an arc weight times the tail. -/
+lemma pathWeightAux_cons_cons {D : SimpleDigraph V} (w : ArcWeight D K) (u v : V) (rest : List V)
+    (arcs_valid : ∀ i : ℕ, ∀ hi : i + 1 < (u :: v :: rest).length,
+      D.arc ((u :: v :: rest).get ⟨i, Nat.lt_of_succ_lt hi⟩) ((u :: v :: rest).get ⟨i + 1, hi⟩))
+    (rest_arcs : ∀ i : ℕ, ∀ hi : i + 1 < (v :: rest).length,
+      D.arc ((v :: rest).get ⟨i, Nat.lt_of_succ_lt hi⟩) ((v :: rest).get ⟨i + 1, hi⟩))
+    (arc_uv : D.arc u v) :
+    pathWeightAux w (u :: v :: rest) arcs_valid =
+      w u v arc_uv * pathWeightAux w (v :: rest) rest_arcs := by
+  simp only [pathWeightAux]
+
+omit [DecidableEq V] in
+/-- pathWeightAux is multiplicative over list append when the lists share a common vertex.
+    If l1 = [..., v] and l2 = [v, ...], then pathWeightAux (l1 ++ l2.tail) = pathWeightAux l1 * pathWeightAux l2. -/
+lemma pathWeightAux_append {D : SimpleDigraph V} (w : ArcWeight D K)
+    (l1 l2 : List V) (h1_ne : l1 ≠ []) (h2_ne : l2 ≠ [])
+    (h_join : l1.getLast h1_ne = l2.head h2_ne)
+    (arcs1 : ∀ i : ℕ, ∀ hi : i + 1 < l1.length,
+      D.arc (l1.get ⟨i, Nat.lt_of_succ_lt hi⟩) (l1.get ⟨i + 1, hi⟩))
+    (arcs2 : ∀ i : ℕ, ∀ hi : i + 1 < l2.length,
+      D.arc (l2.get ⟨i, Nat.lt_of_succ_lt hi⟩) (l2.get ⟨i + 1, hi⟩))
+    (arcs_concat : ∀ i : ℕ, ∀ hi : i + 1 < (l1 ++ l2.tail).length,
+      D.arc ((l1 ++ l2.tail).get ⟨i, Nat.lt_of_succ_lt hi⟩) ((l1 ++ l2.tail).get ⟨i + 1, hi⟩)) :
+    pathWeightAux w (l1 ++ l2.tail) arcs_concat = pathWeightAux w l1 arcs1 * pathWeightAux w l2 arcs2 := by
+  induction l1 generalizing l2 with
+  | nil => simp at h1_ne
+  | cons v1 vs1 ih =>
+    cases vs1 with
+    | nil =>
+      -- l1 = [v1], so l1 ++ l2.tail = v1 :: l2.tail
+      simp only [List.singleton_append, List.getLast_singleton] at h_join ⊢
+      rw [pathWeightAux_singleton]
+      simp only [one_mul]
+      -- Need to show pathWeightAux (v1 :: l2.tail) = pathWeightAux l2
+      -- Since l2 = v1 :: l2.tail (by h_join), this follows from proof irrelevance
+      cases l2 with
+      | nil => simp at h2_ne
+      | cons v2 vs2 =>
+        simp only [List.head_cons] at h_join
+        subst h_join
+        simp only [List.tail_cons]
+    | cons v2 vs2 =>
+      -- l1 = v1 :: v2 :: vs2
+      simp only [List.cons_append]
+      have h1_tail_ne : v2 :: vs2 ≠ [] := List.cons_ne_nil _ _
+      have h_join_tail : (v2 :: vs2).getLast h1_tail_ne = l2.head h2_ne := by
+        simp only [List.getLast_cons h1_tail_ne] at h_join
+        exact h_join
+      have arcs1_tail : ∀ i : ℕ, ∀ hi : i + 1 < (v2 :: vs2).length,
+          D.arc ((v2 :: vs2).get ⟨i, Nat.lt_of_succ_lt hi⟩) ((v2 :: vs2).get ⟨i + 1, hi⟩) := fun i hi =>
+        arcs1 (i + 1) (by simp at hi ⊢; omega)
+      have arcs_concat_tail : ∀ i : ℕ, ∀ hi : i + 1 < ((v2 :: vs2) ++ l2.tail).length,
+          D.arc (((v2 :: vs2) ++ l2.tail).get ⟨i, Nat.lt_of_succ_lt hi⟩)
+                (((v2 :: vs2) ++ l2.tail).get ⟨i + 1, hi⟩) := fun i hi => by
+        have := arcs_concat (i + 1) (by simp at hi ⊢; omega)
+        simp only [List.get_eq_getElem, List.cons_append, List.getElem_cons_succ] at this ⊢
+        exact this
+      have ih_applied := ih l2 h1_tail_ne h2_ne h_join_tail arcs1_tail arcs2 arcs_concat_tail
+      have h_eq : pathWeightAux w (v2 :: (vs2 ++ l2.tail)) arcs_concat_tail =
+                  pathWeightAux w (v2 :: vs2) arcs1_tail * pathWeightAux w l2 arcs2 := by
+        convert ih_applied using 1
+        simp only [List.cons_append]
+      simp only [pathWeightAux, h_eq]
+      ring
+
+/-- The weight of a path tuple is the product of weights of its component paths.
+    w(𝐩) := w(p₁) w(p₂) ⋯ w(pₖ) -/
+noncomputable def pathTupleWeight {D : SimpleDigraph V} {k : ℕ} (w : ArcWeight D K)
+    (ps : Fin k → SimpleDigraph.Path D) : K :=
+  ∏ i, pathWeight w (ps i)
+
+/-!
+## k-Vertices and Path Tuples
+
+Definition def.lgv.path-tups: A k-vertex is a k-tuple of vertices.
+A path tuple from 𝐀 to 𝐁 is a k-tuple of paths where pᵢ goes from Aᵢ to Bᵢ.
+-/
+
+/-- A k-vertex is a k-tuple of vertices of D.
+    Definition def.lgv.path-tups(a) -/
+abbrev kVertex (V : Type*) (k : ℕ) := Fin k → V
+
+/-- Permute a k-vertex by a permutation σ: σ(𝐀) = (A_{σ(1)}, A_{σ(2)}, ..., A_{σ(k)}).
+    Definition def.lgv.path-tups(b) -/
+def permuteKVertex {V : Type*} {k : ℕ} (σ : Equiv.Perm (Fin k)) (A : kVertex V k) : kVertex V k :=
+  fun i => A (σ i)
+
+/-- A path tuple from 𝐀 to 𝐁 is a k-tuple (p₁, ..., pₖ) where pᵢ is a path from Aᵢ to Bᵢ.
+    Definition def.lgv.path-tups(c) -/
+structure PathTuple {V : Type*} [DecidableEq V] (D : SimpleDigraph V) (k : ℕ)
+    (A B : kVertex V k) where
+  /-- The paths in the tuple -/
+  paths : Fin k → SimpleDigraph.Path D
+  /-- Each path starts at the corresponding source vertex -/
+  starts : ∀ i, (paths i).start = A i
+  /-- Each path ends at the corresponding target vertex -/
+  finishes : ∀ i, (paths i).finish = B i
+
+@[ext]
+lemma PathTuple.ext {V : Type*} [DecidableEq V] {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt1 pt2 : PathTuple D k A B)
+    (h : ∀ i, pt1.paths i = pt2.paths i) : pt1 = pt2 := by
+  cases pt1; cases pt2
+  simp only [PathTuple.mk.injEq]
+  ext i
+  exact h i
+
+/-- Two paths have a vertex in common -/
+def pathsIntersect {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) : Prop :=
+  ∃ v, v ∈ p.vertices ∧ v ∈ q.vertices
+
+/-- A path tuple is non-intersecting (nipat) if no two paths share a vertex.
+    Definition def.lgv.path-tups(d) -/
+def PathTuple.isNonIntersecting {V : Type*} [DecidableEq V] {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) : Prop :=
+  ∀ i j, i ≠ j → ¬pathsIntersect (pt.paths i) (pt.paths j)
+
+/-- A path tuple is intersecting (ipat) if some two paths share a vertex.
+    Definition def.lgv.path-tups(e) -/
+def PathTuple.isIntersecting {V : Type*} [DecidableEq V] {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) : Prop :=
+  ¬pt.isNonIntersecting
+
+/-!
+## The Path Weight Matrix
+
+The matrix M where M_{i,j} = ∑_{p : Aᵢ → Bⱼ} w(p).
+-/
+
+/-- The set of paths from u to v in a path-finite digraph -/
+noncomputable def pathsFromTo {V : Type*} [DecidableEq V] (D : SimpleDigraph V)
+    (hpf : D.IsPathFinite) (u v : V) : Finset (SimpleDigraph.Path D) :=
+  (hpf u v).toFinset
+
+/-- The sum of weights of all paths from u to v.
+    ∑_{p : u → v} w(p) -/
+noncomputable def pathWeightSum {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (hpf : D.IsPathFinite) (w : ArcWeight D K) (u v : V) : K :=
+  ∑ p ∈ pathsFromTo D hpf u v, pathWeight w p
+
+/-- The path weight matrix M_{i,j} = ∑_{p : Aᵢ → Bⱼ} w(p) -/
+noncomputable def pathWeightMatrix {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (hpf : D.IsPathFinite) (w : ArcWeight D K) {k : ℕ}
+    (A B : kVertex V k) : Matrix (Fin k) (Fin k) K :=
+  Matrix.of fun i j => pathWeightSum hpf w (A i) (B j)
+
+/-!
+## LGV Lemma: Weighted Lattice Version
+
+Theorem thm.lgv.kpaths.wt: For the integer lattice with arc weights w,
+det(M) = ∑_{σ ∈ Sₖ} (-1)^σ ∑_{𝐩 nipat from 𝐀 to σ(𝐁)} w(𝐩)
+-/
+
+/-- The set of non-intersecting path tuples from 𝐀 to 𝐁 -/
+noncomputable def nipatSet {V : Type*} [DecidableEq V] {D : SimpleDigraph V} {k : ℕ}
+    (A B : kVertex V k) : Set (PathTuple D k A B) :=
+  {pt | pt.isNonIntersecting}
+
+/-- The set of nipats is finite (follows from path-finiteness) -/
+noncomputable def nipatSetFinite {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (hpf : D.IsPathFinite) {k : ℕ} (A B : kVertex V k) : Set.Finite (nipatSet (D := D) A B) := by
+  -- The set of all path tuples from A to B is finite
+  have h_all_finite : Set.Finite {pt : PathTuple D k A B | True} := by
+    let pathSets : Fin k → Set (SimpleDigraph.Path D) := fun i =>
+      {p : SimpleDigraph.Path D | p.start = A i ∧ p.finish = B i}
+    have h_each_finite : ∀ i, Set.Finite (pathSets i) := fun i => hpf (A i) (B i)
+    have h_prod_finite : Set.Finite (Set.pi Set.univ pathSets) :=
+      Set.Finite.pi (fun i => h_each_finite i)
+    -- Define the map from PathTuple to the pi type
+    let f : {pt : PathTuple D k A B | True} → Set.pi Set.univ pathSets := fun ⟨pt, _⟩ =>
+      ⟨pt.paths, fun i _ => ⟨pt.starts i, pt.finishes i⟩⟩
+    have hf_inj : Function.Injective f := by
+      intro ⟨pt1, _⟩ ⟨pt2, _⟩ heq
+      simp only [Subtype.mk.injEq, f] at heq ⊢
+      cases pt1; cases pt2
+      simp only [PathTuple.mk.injEq] at heq ⊢
+      exact heq
+    -- The pi type is finite
+    have h_pi_finite : Finite (Set.pi Set.univ pathSets) := h_prod_finite
+    -- Since f is injective and the codomain is finite, the domain is finite
+    have h_finite : Finite {pt : PathTuple D k A B | True} := Finite.of_injective f hf_inj
+    exact Set.finite_coe_iff.mp h_finite
+  exact h_all_finite.subset (fun _ _ => trivial)
+
+/-- Convert nipatSet to Finset using the finiteness proof -/
+noncomputable def nipatFinset {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (hpf : D.IsPathFinite) {k : ℕ} (A B : kVertex V k) : Finset (PathTuple D k A B) :=
+  (nipatSetFinite hpf A B).toFinset
+
+/-- When nipatSet is empty, nipatFinset is empty -/
+theorem nipatFinset_of_empty {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (hpf : D.IsPathFinite) {k : ℕ} (A B : kVertex V k)
+    (h : nipatSet (D := D) A B = ∅) :
+    nipatFinset hpf A B = ∅ := by
+  unfold nipatFinset
+  rw [Set.Finite.toFinset_eq_empty]
+  exact h
+
+/-- Sum of weights over all nipats from 𝐀 to 𝐁
+    Note: σ is not used in this definition since the permutation is already
+    encoded in B (which should be permuteKVertex σ B' for some B') -/
+noncomputable def nipatWeightSum {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (hpf : D.IsPathFinite) (w : ArcWeight D K) {k : ℕ}
+    (A B : kVertex V k) (_σ : Equiv.Perm (Fin k)) : K :=
+  ∑ pt ∈ nipatFinset hpf A B, pathTupleWeight w pt.paths
+
+/-!
+## Path Tuple Infrastructure for LGV
+
+The key step in the LGV proof is to express the product of sums as a sum over path tuples:
+  ∏_j (∑_{p : A_j → B_j} w(p)) = ∑_{pt : PathTuple} pathTupleWeight w pt.paths
+
+This uses `Finset.prod_univ_sum` and a bijection between PathTuple and the piFinset.
+-/
+
+/-- Bijection between PathTuple and the piFinset of pathsFromTo.
+    This is the key to converting the product of sums to a sum over path tuples. -/
+noncomputable def pathTupleEquivPiFinset {V : Type*} [DecidableEq V] {D : SimpleDigraph V}
+    (hpf : D.IsPathFinite) {k : ℕ} (A B : kVertex V k) :
+    PathTuple D k A B ≃ (Fintype.piFinset (fun j => pathsFromTo D hpf (A j) (B j))) := by
+  refine ⟨?toFun, ?invFun, ?left_inv, ?right_inv⟩
+  case toFun =>
+    intro pt
+    refine ⟨pt.paths, ?_⟩
+    simp only [Fintype.mem_piFinset, pathsFromTo, Set.Finite.mem_toFinset, Set.mem_setOf_eq]
+    intro j
+    exact ⟨pt.starts j, pt.finishes j⟩
+  case invFun =>
+    intro ⟨f, hf⟩
+    simp only [Fintype.mem_piFinset, pathsFromTo, Set.Finite.mem_toFinset, Set.mem_setOf_eq] at hf
+    exact ⟨f, fun j => (hf j).1, fun j => (hf j).2⟩
+  case left_inv =>
+    intro pt
+    rfl
+  case right_inv =>
+    intro ⟨f, hf⟩
+    rfl
+
+/-!
+## LGV Lemma: General Digraph Version
+
+Theorem thm.lgv.kpaths.wt-dg: The same result holds for any path-finite acyclic digraph.
+
+The proof uses a sign-reversing involution on intersecting path tuples. The key steps are:
+
+1. Express det(M) using the Leibniz formula as ∑_σ (-1)^σ ∏_i M_{i,σ(i)}
+2. Expand each product as a sum over path tuples from 𝐀 to σ(𝐁)
+3. Define a sign-reversing involution f on intersecting path tuples:
+   - Find the first crowded point (vertex in multiple paths)
+   - Pick the smallest index i whose path contains a crowded point
+   - Pick the first crowded point v on path p_i
+   - Pick the largest index j such that v is on path p_j
+   - Exchange the tails of p_i and p_j at v
+   - This maps (σ, 𝐩) to (σ ∘ t_{i,j}, 𝐩'), where t_{i,j} is the transposition
+4. The involution preserves weight but flips sign, so intersecting tuples cancel
+5. Only non-intersecting path tuples (nipats) contribute to the sum
+-/
+
+variable {V : Type*} [DecidableEq V]
+
+/-- A crowded point in a path tuple is a vertex that appears in at least two paths -/
+def PathTuple.isCrowded {D : SimpleDigraph V} {k : ℕ} {A B : kVertex V k}
+    (pt : PathTuple D k A B) (v : V) : Prop :=
+  ∃ i j : Fin k, i ≠ j ∧ v ∈ (pt.paths i).vertices ∧ v ∈ (pt.paths j).vertices
+
+/-- An intersecting path tuple has at least one crowded point -/
+theorem PathTuple.isIntersecting_iff_exists_crowded {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) :
+    pt.isIntersecting ↔ ∃ v, pt.isCrowded v := by
+  unfold isIntersecting isNonIntersecting isCrowded pathsIntersect
+  push Not
+  constructor
+  · intro ⟨i, j, hij, v, hvi, hvj⟩
+    exact ⟨v, i, j, hij, hvi, hvj⟩
+  · intro ⟨v, i, j, hij, hvi, hvj⟩
+    exact ⟨i, j, hij, v, hvi, hvj⟩
+
+/-- The set of path tuples from 𝐀 to σ(𝐁) paired with the permutation σ -/
+def pathTupleWithPerm {D : SimpleDigraph V} {k : ℕ}
+    (A B : kVertex V k) : Type _ :=
+  (σ : Equiv.Perm (Fin k)) × PathTuple D k A (permuteKVertex σ B)
+
+/-- The sign of a path tuple with permutation is (-1)^σ -/
+def signOfPathTupleWithPerm {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (sp : pathTupleWithPerm (D := D) A B) : ℤˣ :=
+  Equiv.Perm.sign sp.1
+
+/-- The weight of a path tuple with permutation -/
+noncomputable def weightOfPathTupleWithPerm {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (w : ArcWeight D K) (sp : pathTupleWithPerm (D := D) A B) : K :=
+  pathTupleWeight w sp.2.paths
+
+/-- The index of the first occurrence of a vertex in a path's vertex list -/
+def firstIndexIn {D : SimpleDigraph V} (p : SimpleDigraph.Path D) (v : V) : ℕ :=
+  p.vertices.findIdx (· = v)
+
+-- Helper: findIdx returns the index of the first element satisfying the predicate
+/-- Helper lemma: findIdx returns n if element at n satisfies predicate and all before don't.
+    This is useful for showing that firstCrowdedIndexOnPath is preserved under signReversing. -/
+lemma findIdx_eq_of_first_satisfies {α : Type*} (l : List α) (p : α → Bool) (n : ℕ) (hn : n < l.length)
+    (h_at_n : p l[n] = true)
+    (h_before : ∀ m : ℕ, (hm : m < n) → p l[m] = false) :
+    l.findIdx p = n := by
+  induction l generalizing n with
+  | nil => simp at hn
+  | cons x xs ih =>
+    cases n with
+    | zero =>
+      simp only [List.findIdx_cons, List.getElem_cons_zero] at *
+      simp only [h_at_n, cond_true]
+    | succ m =>
+      simp only [List.findIdx_cons]
+      have h_not_px : p x = false := by
+        have := h_before 0 (Nat.zero_lt_succ m)
+        simp only [List.getElem_cons_zero] at this
+        exact this
+      simp only [h_not_px, cond_false]
+      apply congrArg (· + 1)
+      have hm_lt : m < xs.length := by
+        simp only [List.length_cons] at hn; omega
+      apply ih m hm_lt
+      · simp only [List.getElem_cons_succ] at h_at_n; exact h_at_n
+      · intro k hk
+        have := h_before (k + 1) (by omega)
+        simp only [List.getElem_cons_succ] at this
+        exact this
+
+lemma findIdx_get_eq (l : List V) (v : V) (hv : v ∈ l) :
+    l[l.findIdx (· = v)]'(List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩) = v := by
+  have h := @List.findIdx_getElem (α := V) (p := (· = v)) (xs := l)
+    (w := List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩)
+  simp at h
+  exact h
+
+-- Helper: findIdx is bounded by the index of any element satisfying the predicate
+omit [DecidableEq V] in
+lemma findIdx_le_of_mem (l : List V) (i : ℕ) (hi : i < l.length)
+    (pred : V → Bool) (hp : pred l[i] = true) : l.findIdx pred ≤ i := by
+  induction l generalizing i with
+  | nil => simp at hi
+  | cons x xs ih =>
+    cases i with
+    | zero =>
+      simp only [List.getElem_cons_zero] at hp
+      simp only [List.findIdx_cons, hp, cond_true, le_refl]
+    | succ j =>
+      simp only [List.findIdx_cons]
+      simp only [List.getElem_cons_succ] at hp
+      cases hx : pred x with
+      | true => simp
+      | false =>
+        simp only [cond_false]
+        simp at hi
+        have := ih j (by omega : j < xs.length) hp
+        omega
+
+-- Helper: if two elements have the same findIdx, they are equal
+lemma findIdx_inj (l : List V) (v w : V) (hv : v ∈ l) (hw : w ∈ l)
+    (heq : l.findIdx (· = v) = l.findIdx (· = w)) : v = w := by
+  have hv_lt := List.findIdx_lt_length_of_exists (p := (· = v)) ⟨v, hv, by simp⟩
+  have hw_lt := List.findIdx_lt_length_of_exists (p := (· = w)) ⟨w, hw, by simp⟩
+  have hv_get := findIdx_get_eq l v hv
+  have hw_get := findIdx_get_eq l w hw
+  have hv_lt' : l.findIdx (· = w) < l.length := by rw [← heq]; exact hv_lt
+  have key : l[l.findIdx (· = v)]'hv_lt = l[l.findIdx (· = w)]'hv_lt' := by
+    simp only [heq]
+  rw [hv_get] at key
+  have key2 : l[l.findIdx (· = w)]'hv_lt' = l[l.findIdx (· = w)]'hw_lt := by
+    congr 1
+  rw [key2, hw_get] at key
+  exact key
+
+/-- In an acyclic digraph, the first intersection of two paths (if they intersect)
+    is well-defined: it's the same whether we look from path p or path q.
+    This is because if they were different, we could form a cycle. -/
+theorem first_intersection_unique {D : SimpleDigraph V} (_hac : D.IsAcyclic)
+    (p q : SimpleDigraph.Path D) (hp : pathsIntersect p q) :
+    ∃! v, v ∈ p.vertices ∧ v ∈ q.vertices ∧
+      (∀ v' ∈ p.vertices, v' ∈ q.vertices →
+        firstIndexIn p v ≤ firstIndexIn p v') := by
+  -- Get a common vertex from the intersection hypothesis
+  obtain ⟨v₀, hv₀_p, hv₀_q⟩ := hp
+  -- Define the predicate: index i has a common vertex at that position
+  let P : ℕ → Prop := fun i => ∃ (hi : i < p.vertices.length),
+    p.vertices[i] ∈ q.vertices
+  -- P is decidable
+  have hP_dec : DecidablePred P := by
+    intro i
+    by_cases hi : i < p.vertices.length
+    · exact decidable_of_iff (p.vertices[i] ∈ q.vertices) (by
+        simp only [P]
+        constructor
+        · intro h
+          exact ⟨hi, h⟩
+        · intro ⟨_, h⟩
+          convert h)
+    · exact isFalse (by simp only [P, not_exists]; intro h; exact absurd h hi)
+  -- There exists an index with a common vertex
+  have hP_exists : ∃ i, P i := by
+    have hfind_lt := List.findIdx_lt_length_of_exists (p := (· = v₀)) ⟨v₀, hv₀_p, by simp⟩
+    use p.vertices.findIdx (· = v₀)
+    simp only [P]
+    refine ⟨hfind_lt, ?_⟩
+    have : p.vertices[p.vertices.findIdx (· = v₀)] = v₀ :=
+      findIdx_get_eq p.vertices v₀ hv₀_p
+    rw [this]
+    exact hv₀_q
+  -- Find the minimum such index
+  let min_idx := Nat.find hP_exists
+  -- Get the vertex at this index
+  have hmin_P : P min_idx := Nat.find_spec hP_exists
+  simp only [P] at hmin_P
+  obtain ⟨hmin_lt, hv_q⟩ := hmin_P
+  -- Define v as the vertex at min_idx
+  let v := p.vertices[min_idx]
+  -- v is in p.vertices
+  have hv_p : v ∈ p.vertices := List.getElem_mem hmin_lt
+  -- Claim: v is the unique first intersection
+  use v
+  constructor
+  · -- v satisfies the properties
+    refine ⟨hv_p, hv_q, ?_⟩
+    intro v' hv'_p hv'_q
+    -- Show firstIndexIn p v ≤ firstIndexIn p v'
+    unfold firstIndexIn
+    -- The index of v in p is at most min_idx
+    have hv_findIdx : p.vertices.findIdx (· = v) ≤ min_idx := by
+      apply findIdx_le_of_mem p.vertices min_idx hmin_lt (· = v)
+      simp [v]
+    -- Also, min_idx ≤ findIdx (· = v') by minimality
+    have hmin_le_v' : min_idx ≤ p.vertices.findIdx (· = v') := by
+      apply Nat.find_le
+      simp only [P]
+      have hfind'_lt := List.findIdx_lt_length_of_exists (p := (· = v')) ⟨v', hv'_p, by simp⟩
+      refine ⟨hfind'_lt, ?_⟩
+      have : p.vertices[p.vertices.findIdx (· = v')] = v' :=
+        findIdx_get_eq p.vertices v' hv'_p
+      rw [this]
+      exact hv'_q
+    -- We need findIdx v ≤ findIdx v'
+    -- We have findIdx v ≤ min_idx ≤ findIdx v'
+    exact le_trans hv_findIdx hmin_le_v'
+  · -- Uniqueness
+    intro w ⟨hw_p, hw_q, hw_min⟩
+    -- w also achieves the minimum
+    have hw_findIdx_le : firstIndexIn p w ≤ firstIndexIn p v := hw_min v hv_p hv_q
+    have hv_findIdx_le : firstIndexIn p v ≤ firstIndexIn p w := by
+      unfold firstIndexIn
+      have hv_findIdx : p.vertices.findIdx (· = v) ≤ min_idx := by
+        apply findIdx_le_of_mem p.vertices min_idx hmin_lt (· = v)
+        simp [v]
+      have hmin_le_w : min_idx ≤ p.vertices.findIdx (· = w) := by
+        apply Nat.find_le
+        simp only [P]
+        have hfind'_lt := List.findIdx_lt_length_of_exists (p := (· = w)) ⟨w, hw_p, by simp⟩
+        refine ⟨hfind'_lt, ?_⟩
+        have : p.vertices[p.vertices.findIdx (· = w)] = w :=
+          findIdx_get_eq p.vertices w hw_p
+        rw [this]
+        exact hw_q
+      exact le_trans hv_findIdx hmin_le_w
+    have heq_idx : firstIndexIn p v = firstIndexIn p w := le_antisymm hv_findIdx_le hw_findIdx_le
+    exact (findIdx_inj p.vertices v w hv_p hw_p heq_idx).symm
+
+/-- Split a path at a vertex v, returning (head ending at v, tail starting at v).
+    The head includes v, the tail starts at v. -/
+noncomputable def SimpleDigraph.Path.splitAt {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) : SimpleDigraph.Path D × SimpleDigraph.Path D :=
+  let idx := p.vertices.findIdx (· = v)
+  let head := p.vertices.take (idx + 1)
+  let tail := p.vertices.drop idx
+  have h_idx_lt : idx < p.vertices.length :=
+    List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩
+  have h_head_ne : head ≠ [] := by
+    intro h
+    have hlen : head.length = 0 := by simp [h]
+    simp only [head, List.length_take] at hlen
+    omega
+  have h_tail_ne : tail ≠ [] := by
+    intro h
+    have hlen : tail.length = 0 := by rw [h]; rfl
+    simp only [tail, List.length_drop] at hlen
+    omega
+  have h_head_arcs : ∀ i : ℕ, ∀ hi : i + 1 < head.length,
+      D.arc (head.get ⟨i, Nat.lt_of_succ_lt hi⟩) (head.get ⟨i + 1, hi⟩) := by
+    intro i hi
+    simp only [head, List.length_take, lt_min_iff] at hi
+    have hi2 : i + 1 < p.vertices.length := by omega
+    have := p.arcs_valid i hi2
+    simp only [List.get_eq_getElem] at this ⊢
+    simp only [head]
+    rw [List.getElem_take, List.getElem_take]
+    exact this
+  have h_tail_arcs : ∀ i : ℕ, ∀ hi : i + 1 < tail.length,
+      D.arc (tail.get ⟨i, Nat.lt_of_succ_lt hi⟩) (tail.get ⟨i + 1, hi⟩) := by
+    intro i hi
+    simp only [tail, List.length_drop] at hi
+    have hi2 : idx + i + 1 < p.vertices.length := by omega
+    have := p.arcs_valid (idx + i) hi2
+    simp only [List.get_eq_getElem] at this ⊢
+    simp only [tail]
+    rw [List.getElem_drop, List.getElem_drop]
+    simpa only [Nat.add_assoc] using this
+  (⟨head, h_head_ne, h_head_arcs⟩, ⟨tail, h_tail_ne, h_tail_arcs⟩)
+
+/-- The head of splitAt ends at v -/
+lemma SimpleDigraph.Path.splitAt_head_finish {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) : (p.splitAt v hv).1.finish = v := by
+  unfold splitAt SimpleDigraph.Path.finish
+  simp only
+  have h_idx_lt : p.vertices.findIdx (· = v) < p.vertices.length :=
+    List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩
+  have h_len : (p.vertices.take (p.vertices.findIdx (· = v) + 1)).length =
+               p.vertices.findIdx (· = v) + 1 := by
+    rw [List.length_take]
+    omega
+  have h_ne : p.vertices.take (p.vertices.findIdx (· = v) + 1) ≠ [] := by
+    intro h
+    have : (p.vertices.take (p.vertices.findIdx (· = v) + 1)).length = 0 := by simp [h]
+    omega
+  rw [List.getLast_eq_getElem]
+  have h_idx : (p.vertices.take (p.vertices.findIdx (· = v) + 1)).length - 1 =
+               p.vertices.findIdx (· = v) := by
+    rw [h_len]; omega
+  simp only [h_idx, List.getElem_take]
+  have := @List.findIdx_getElem V (· = v) p.vertices h_idx_lt
+  simp at this
+  exact this
+
+/-- The tail of splitAt starts at v -/
+lemma SimpleDigraph.Path.splitAt_tail_start {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) : (p.splitAt v hv).2.start = v := by
+  unfold splitAt SimpleDigraph.Path.start
+  simp only
+  have h_idx_lt : p.vertices.findIdx (· = v) < p.vertices.length :=
+    List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩
+  have h_ne : p.vertices.drop (p.vertices.findIdx (· = v)) ≠ [] := by
+    intro h
+    have hlen : (p.vertices.drop (p.vertices.findIdx (· = v))).length = 0 := by rw [h]; rfl
+    simp only [List.length_drop] at hlen
+    omega
+  rw [List.head_eq_getElem]
+  simp only [List.getElem_drop, Nat.add_zero]
+  have := @List.findIdx_getElem V (· = v) p.vertices h_idx_lt
+  simp at this
+  exact this
+
+/-- Concatenate two paths where the first path ends at v and the second starts at v.
+    The resulting path goes from the start of the first to the end of the second.
+    The vertex v appears once in the result (not duplicated). -/
+noncomputable def SimpleDigraph.Path.concat {D : SimpleDigraph V} (p q : SimpleDigraph.Path D)
+    (hpq : p.finish = q.start) : SimpleDigraph.Path D :=
+  let vertices := p.vertices ++ q.vertices.tail
+  have h_ne : vertices ≠ [] := by
+    simp only [vertices]
+    intro h
+    have hlen : (p.vertices ++ q.vertices.tail).length = 0 := by rw [h]; rfl
+    simp only [List.length_append, List.length_tail] at hlen
+    have hp_ne := p.nonempty
+    have hp_len : p.vertices.length ≠ 0 := by
+      intro h
+      exact hp_ne (List.eq_nil_of_length_eq_zero h)
+    omega
+  have h_arcs : ∀ i : ℕ, ∀ hi : i + 1 < vertices.length,
+      D.arc (vertices.get ⟨i, Nat.lt_of_succ_lt hi⟩) (vertices.get ⟨i + 1, hi⟩) := by
+    intro i hi
+    simp only [vertices, List.length_append, List.length_tail] at hi
+    simp only [List.get_eq_getElem, vertices]
+    by_cases h : i + 1 < p.vertices.length
+    · rw [List.getElem_append_left (by omega), List.getElem_append_left h]
+      exact p.arcs_valid i h
+    · push Not at h
+      by_cases h' : i < p.vertices.length
+      · have hi_eq : i = p.vertices.length - 1 := by omega
+        have hq_len : 1 < q.vertices.length := by
+          have hq_ne := q.nonempty
+          by_contra hq_short
+          push Not at hq_short
+          have htail_len : q.vertices.tail.length = 0 := by simp only [List.length_tail]; omega
+          omega
+        rw [List.getElem_append_left h', List.getElem_append_right (by omega)]
+        have h1 : p.vertices[i]'h' = p.finish := by
+          simp only [SimpleDigraph.Path.finish, hi_eq, List.getLast_eq_getElem]
+        have h_idx : i + 1 - p.vertices.length = 0 := by omega
+        have h2 : q.vertices.tail[i + 1 - p.vertices.length]'(by simp; omega) = q.vertices[1]'hq_len := by
+          simp only [h_idx, List.getElem_tail]
+        rw [h1, h2, hpq]
+        have hq_arc := q.arcs_valid 0 hq_len
+        simp only [List.get_eq_getElem, SimpleDigraph.Path.start, List.head_eq_getElem] at hq_arc ⊢
+        exact hq_arc
+      · push Not at h'
+        have hi1 : i - p.vertices.length < q.vertices.tail.length := by simp; omega
+        have hi2 : i + 1 - p.vertices.length < q.vertices.tail.length := by simp; omega
+        rw [List.getElem_append_right (by omega), List.getElem_append_right (by omega)]
+        have h1 : q.vertices.tail[i - p.vertices.length]'hi1 =
+                  q.vertices[i - p.vertices.length + 1]'(by simp at hi1; omega) := by
+          simp only [List.getElem_tail]
+        have h2 : q.vertices.tail[i + 1 - p.vertices.length]'hi2 =
+                  q.vertices[i + 1 - p.vertices.length + 1]'(by simp at hi2; omega) := by
+          simp only [List.getElem_tail]
+        rw [h1, h2]
+        have hq_arc := q.arcs_valid (i - p.vertices.length + 1) (by simp at hi2; omega)
+        simp only [List.get_eq_getElem] at hq_arc
+        convert hq_arc using 2; omega
+  ⟨vertices, h_ne, h_arcs⟩
+
+omit [DecidableEq V] in
+/-- The concatenation of two paths starts at the first path's start -/
+lemma SimpleDigraph.Path.concat_start {D : SimpleDigraph V} (p q : SimpleDigraph.Path D)
+    (hpq : p.finish = q.start) : (p.concat q hpq).start = p.start := by
+  unfold concat start
+  simp only
+  exact List.head_append_of_ne_nil (l' := q.vertices.tail) p.nonempty
+
+omit [DecidableEq V] in
+/-- The concatenation of two paths ends at the second path's finish -/
+lemma SimpleDigraph.Path.concat_finish {D : SimpleDigraph V} (p q : SimpleDigraph.Path D)
+    (hpq : p.finish = q.start) : (p.concat q hpq).finish = q.finish := by
+  unfold concat finish
+  simp only
+  have hq_ne := q.nonempty
+  by_cases h : q.vertices.tail = []
+  · have hq_len : q.vertices.length = 1 := by
+      have : q.vertices.tail.length = 0 := by simp [h]
+      simp only [List.length_tail] at this
+      have hq_pos : 0 < q.vertices.length := List.length_pos_of_ne_nil hq_ne
+      omega
+    have hq_finish_eq_start : q.vertices.getLast hq_ne = q.vertices.head hq_ne := by
+      rw [List.getLast_eq_getElem, List.head_eq_getElem]; congr; omega
+    simp only [h, List.append_nil]
+    rw [hq_finish_eq_start]
+    unfold start at hpq
+    rw [← hpq]; unfold finish; rfl
+  · rw [List.getLast_append_of_ne_nil _ h, List.getLast_tail h]
+
+omit [DecidableEq V] in
+/-- pathWeight is multiplicative over path concatenation. -/
+lemma pathWeight_concat {D : SimpleDigraph V} (w : ArcWeight D K)
+    (p q : SimpleDigraph.Path D) (hpq : p.finish = q.start) :
+    pathWeight w (p.concat q hpq) = pathWeight w p * pathWeight w q := by
+  unfold pathWeight SimpleDigraph.Path.concat
+  simp only
+  have h_join : p.vertices.getLast p.nonempty = q.vertices.head q.nonempty := by
+    unfold SimpleDigraph.Path.finish SimpleDigraph.Path.start at hpq
+    exact hpq
+  exact pathWeightAux_append w p.vertices q.vertices p.nonempty q.nonempty h_join p.arcs_valid q.arcs_valid _
+
+/-- pathWeight factors over splitAt: the weight of a path is the product of the weights
+    of its head and tail after splitting at any vertex. -/
+lemma pathWeight_splitAt {D : SimpleDigraph V} (w : ArcWeight D K)
+    (p : SimpleDigraph.Path D) (v : V) (hv : v ∈ p.vertices) :
+    pathWeight w p = pathWeight w (p.splitAt v hv).1 * pathWeight w (p.splitAt v hv).2 := by
+  unfold pathWeight SimpleDigraph.Path.splitAt
+  simp only
+  set idx := p.vertices.findIdx (· = v) with h_idx_def
+  set head := p.vertices.take (idx + 1) with h_head_def
+  set tail := p.vertices.drop idx with h_tail_def
+  have h_idx_lt : idx < p.vertices.length :=
+    List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩
+  have h_head_ne : head ≠ [] := by
+    intro h
+    have hlen : head.length = 0 := by simp [h]
+    simp only [h_head_def, List.length_take] at hlen
+    omega
+  have h_tail_ne : tail ≠ [] := by
+    intro h
+    have hlen : tail.length = 0 := by rw [h]; rfl
+    simp only [h_tail_def, List.length_drop] at hlen
+    omega
+  -- The key: head ++ tail.tail = p.vertices
+  have h_concat : head ++ tail.tail = p.vertices := by
+    simp only [h_head_def, h_tail_def]
+    have htail : (p.vertices.drop idx).tail = p.vertices.drop (idx + 1) := List.tail_drop
+    rw [htail, List.take_append_drop]
+  -- The join condition
+  have h_head_last : head.getLast h_head_ne = v := by
+    simp only [h_head_def]
+    rw [List.getLast_eq_getElem]
+    have h_len : (p.vertices.take (idx + 1)).length = idx + 1 := by
+      rw [List.length_take]; omega
+    simp only [h_len]
+    rw [List.getElem_take]
+    have := @List.findIdx_getElem V (· = v) p.vertices h_idx_lt
+    simp at this
+    exact this
+  have h_tail_head : tail.head h_tail_ne = v := by
+    simp only [h_tail_def]
+    rw [List.head_eq_getElem]
+    simp only [List.getElem_drop, Nat.add_zero]
+    have := @List.findIdx_getElem V (· = v) p.vertices h_idx_lt
+    simp at this
+    exact this
+  have h_join : head.getLast h_head_ne = tail.head h_tail_ne := by
+    rw [h_head_last, h_tail_head]
+  -- Arc proofs
+  have h_arcs_head : ∀ i : ℕ, ∀ hi : i + 1 < head.length,
+      D.arc (head.get ⟨i, Nat.lt_of_succ_lt hi⟩) (head.get ⟨i + 1, hi⟩) := by
+    intro i hi
+    simp only [h_head_def, List.length_take, lt_min_iff] at hi
+    have hi2 : i + 1 < p.vertices.length := by omega
+    have := p.arcs_valid i hi2
+    simp only [List.get_eq_getElem] at this ⊢
+    simp only [h_head_def]
+    rw [List.getElem_take, List.getElem_take]
+    exact this
+  have h_arcs_tail : ∀ i : ℕ, ∀ hi : i + 1 < tail.length,
+      D.arc (tail.get ⟨i, Nat.lt_of_succ_lt hi⟩) (tail.get ⟨i + 1, hi⟩) := by
+    intro i hi
+    simp only [h_tail_def, List.length_drop] at hi
+    have hi2 : idx + i + 1 < p.vertices.length := by omega
+    have := p.arcs_valid (idx + i) hi2
+    simp only [List.get_eq_getElem] at this ⊢
+    simp only [h_tail_def]
+    rw [List.getElem_drop, List.getElem_drop]
+    simpa only [Nat.add_assoc] using this
+  -- Construct arcs_concat from p.arcs_valid using h_concat
+  have h_len_eq : (head ++ tail.tail).length = p.vertices.length := by
+    rw [h_concat]
+  have h_arcs_concat : ∀ i : ℕ, ∀ hi : i + 1 < (head ++ tail.tail).length,
+      D.arc ((head ++ tail.tail).get ⟨i, Nat.lt_of_succ_lt hi⟩)
+            ((head ++ tail.tail).get ⟨i + 1, hi⟩) := by
+    intro i hi
+    have hi' : i + 1 < p.vertices.length := h_len_eq ▸ hi
+    have := p.arcs_valid i hi'
+    simp only [List.get_eq_getElem] at this ⊢
+    simpa only [h_concat] using this
+  -- Apply pathWeightAux_append
+  have h_main := pathWeightAux_append w head tail h_head_ne h_tail_ne h_join h_arcs_head h_arcs_tail h_arcs_concat
+  -- Connect LHS to RHS using h_concat
+  calc pathWeightAux w p.vertices p.arcs_valid
+      = pathWeightAux w (head ++ tail.tail) h_arcs_concat :=
+          pathWeightAux_eq_of_eq w h_concat.symm _ _
+    _ = pathWeightAux w head h_arcs_head * pathWeightAux w tail h_arcs_tail := h_main
+    _ = pathWeightAux w head _ * pathWeightAux w tail _ := rfl
+
+/-- The head of splitAt starts at the original path's start -/
+lemma SimpleDigraph.Path.splitAt_head_start {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) : (p.splitAt v hv).1.start = p.start := by
+  unfold splitAt start
+  simp only
+  have h_idx_lt : p.vertices.findIdx (· = v) < p.vertices.length :=
+    List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩
+  have h_head_ne : p.vertices.take (p.vertices.findIdx (· = v) + 1) ≠ [] := by
+    intro h; have hlen : (p.vertices.take (p.vertices.findIdx (· = v) + 1)).length = 0 := by simp [h]
+    simp only [List.length_take] at hlen; omega
+  exact List.head_take h_head_ne
+
+/-- The tail of splitAt ends at the original path's finish -/
+lemma SimpleDigraph.Path.splitAt_tail_finish {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) : (p.splitAt v hv).2.finish = p.finish := by
+  unfold splitAt finish
+  simp only
+  have h_idx_lt : p.vertices.findIdx (· = v) < p.vertices.length :=
+    List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩
+  have h_drop_ne : p.vertices.drop (p.vertices.findIdx (· = v)) ≠ [] := by
+    intro h; have hlen : (p.vertices.drop (p.vertices.findIdx (· = v))).length = 0 := by rw [h]; rfl
+    simp only [List.length_drop] at hlen; omega
+  rw [List.getLast_drop h_drop_ne]
+
+/-- Exchange the tails of two paths at a common vertex.
+    If p goes A → v → B and q goes A' → v → B', then after exchange:
+    p' goes A → v → B' and q' goes A' → v → B -/
+noncomputable def exchangeTails {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    SimpleDigraph.Path D × SimpleDigraph.Path D :=
+  let sp_p := p.splitAt v hv_p
+  let sp_q := q.splitAt v hv_q
+  let head_p := sp_p.1
+  let tail_p := sp_p.2
+  let head_q := sp_q.1
+  let tail_q := sp_q.2
+  have h1 : head_p.finish = tail_q.start := by
+    have hp := SimpleDigraph.Path.splitAt_head_finish p v hv_p
+    have hq := SimpleDigraph.Path.splitAt_tail_start q v hv_q
+    simp only [head_p, sp_p, tail_q, sp_q] at *
+    rw [hp, hq]
+  have h2 : head_q.finish = tail_p.start := by
+    have hp := SimpleDigraph.Path.splitAt_tail_start p v hv_p
+    have hq := SimpleDigraph.Path.splitAt_head_finish q v hv_q
+    simp only [tail_p, sp_p, head_q, sp_q] at *
+    rw [hq, hp]
+  (SimpleDigraph.Path.concat head_p tail_q h1, SimpleDigraph.Path.concat head_q tail_p h2)
+
+/-- The first path from exchangeTails starts at the original first path's start -/
+lemma exchangeTails_fst_start {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    (exchangeTails p q v hv_p hv_q).1.start = p.start := by
+  unfold exchangeTails
+  simp only
+  rw [SimpleDigraph.Path.concat_start]
+  exact SimpleDigraph.Path.splitAt_head_start p v hv_p
+
+/-- The first path from exchangeTails ends at the original second path's finish -/
+lemma exchangeTails_fst_finish {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    (exchangeTails p q v hv_p hv_q).1.finish = q.finish := by
+  unfold exchangeTails
+  simp only
+  rw [SimpleDigraph.Path.concat_finish]
+  exact SimpleDigraph.Path.splitAt_tail_finish q v hv_q
+
+/-- The second path from exchangeTails starts at the original second path's start -/
+lemma exchangeTails_snd_start {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    (exchangeTails p q v hv_p hv_q).2.start = q.start := by
+  unfold exchangeTails
+  simp only
+  rw [SimpleDigraph.Path.concat_start]
+  exact SimpleDigraph.Path.splitAt_head_start q v hv_q
+
+/-- The second path from exchangeTails ends at the original first path's finish -/
+lemma exchangeTails_snd_finish {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    (exchangeTails p q v hv_p hv_q).2.finish = p.finish := by
+  unfold exchangeTails
+  simp only
+  rw [SimpleDigraph.Path.concat_finish]
+  exact SimpleDigraph.Path.splitAt_tail_finish p v hv_p
+
+omit [DecidableEq V] in
+/-- If p.finish = v, then v is in (concat p q).vertices -/
+lemma SimpleDigraph.Path.concat_mem_of_finish {D : SimpleDigraph V} (p q : SimpleDigraph.Path D)
+    (hpq : p.finish = q.start) : p.finish ∈ (p.concat q hpq).vertices := by
+  unfold concat
+  simp only
+  apply List.mem_append_left
+  exact List.getLast_mem p.nonempty
+
+/-- The crowded point v is in the first exchanged path's vertices.
+    Since head_p ends at v, and concat uses head_p.vertices ++ tail_q.vertices.tail,
+    v is in the first path. -/
+lemma exchangeTails_fst_mem_v {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    v ∈ (exchangeTails p q v hv_p hv_q).1.vertices := by
+  unfold exchangeTails
+  simp only
+  apply List.mem_append_left
+  have h := SimpleDigraph.Path.splitAt_head_finish p v hv_p
+  unfold SimpleDigraph.Path.finish at h
+  have hmem := List.getLast_mem (p.splitAt v hv_p).1.nonempty
+  rw [h] at hmem
+  exact hmem
+
+/-- The crowded point v is in the second exchanged path's vertices.
+    Since head_q ends at v, and concat uses head_q.vertices ++ tail_p.vertices.tail,
+    v is in the second path. -/
+lemma exchangeTails_snd_mem_v {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    v ∈ (exchangeTails p q v hv_p hv_q).2.vertices := by
+  unfold exchangeTails
+  simp only
+  apply List.mem_append_left
+  have h := SimpleDigraph.Path.splitAt_head_finish q v hv_q
+  unfold SimpleDigraph.Path.finish at h
+  have hmem := List.getLast_mem (q.splitAt v hv_q).1.nonempty
+  rw [h] at hmem
+  exact hmem
+
+/-- Exchanging tails twice at the same vertex returns the original paths.
+    This is the key involutivity property needed for the sign-reversing involution.
+
+    **Proof idea:** When we exchange tails at v:
+    - p becomes head_p ++ tail_q
+    - q becomes head_q ++ tail_p
+
+    When we exchange again at v:
+    - head_p ++ tail_q splits at v into (head_p, tail_q)
+    - head_q ++ tail_p splits at v into (head_q, tail_p)
+    - Exchanging gives (head_p ++ tail_p, head_q ++ tail_q) = (p, q)
+
+    The key lemma is that splitAt(concat(head, tail), v) = (head, tail) when head ends at v
+    and tail starts at v, and v appears only once in head (which holds for acyclic paths). -/
+-- Helper: findIdx on head after splitAt equals head.length - 1
+lemma splitAt_head_findIdx_eq (l : List V) (v : V) (hv : v ∈ l) :
+    let idx := l.findIdx (· = v)
+    let head := l.take (idx + 1)
+    head.findIdx (· = v) = head.length - 1 := by
+  simp only
+  have h_idx_lt : l.findIdx (· = v) < l.length := List.findIdx_lt_length_of_exists ⟨v, hv, by simp⟩
+  have h_len : (l.take (l.findIdx (· = v) + 1)).length = l.findIdx (· = v) + 1 := by
+    rw [List.length_take]; omega
+  have h_getElem : l[l.findIdx (· = v)]'h_idx_lt = v := by
+    have := @List.findIdx_getElem V (· = v) l h_idx_lt
+    simp at this; exact this
+  have h_head_getElem : (l.take (l.findIdx (· = v) + 1))[l.findIdx (· = v)]'(by rw [h_len]; omega) = v := by
+    rw [List.getElem_take]; exact h_getElem
+  have hv_mem_head : v ∈ l.take (l.findIdx (· = v) + 1) := by
+    rw [List.mem_iff_getElem]
+    exact ⟨l.findIdx (· = v), by rw [h_len]; omega, h_head_getElem⟩
+  have h_head_lt := List.findIdx_lt_length_of_exists (p := (· = v)) ⟨v, hv_mem_head, by simp⟩
+  have h_le : (l.take (l.findIdx (· = v) + 1)).findIdx (· = v) ≤ l.findIdx (· = v) := by
+    by_contra h_neg; push Not at h_neg; omega
+  have h_ge : l.findIdx (· = v) ≤ (l.take (l.findIdx (· = v) + 1)).findIdx (· = v) := by
+    by_contra h_neg; push Not at h_neg
+    have h_found : (l.take (l.findIdx (· = v) + 1))[(l.take (l.findIdx (· = v) + 1)).findIdx (· = v)]'h_head_lt = v := by
+      have := @List.findIdx_getElem V (· = v) (l.take (l.findIdx (· = v) + 1)) h_head_lt
+      simp only [decide_eq_true_eq] at this; exact this
+    have h_in_l : l[(l.take (l.findIdx (· = v) + 1)).findIdx (· = v)]'(by omega) = v := by
+      have : (l.take (l.findIdx (· = v) + 1))[(l.take (l.findIdx (· = v) + 1)).findIdx (· = v)]'h_head_lt =
+             l[(l.take (l.findIdx (· = v) + 1)).findIdx (· = v)]'(by omega) := by
+        rw [List.getElem_take]
+      rw [← this]; exact h_found
+    have h_not_before : ∀ j, (hj : j < l.findIdx (· = v)) → ¬(l[j]'(Nat.lt_trans hj h_idx_lt) = v) := by
+      intro j hj
+      have := List.not_of_lt_findIdx hj
+      simp at this; exact this
+    exact h_not_before _ h_neg h_in_l
+  have h_eq := le_antisymm h_le h_ge
+  rw [h_eq, h_len]; omega
+
+-- Key lemma: splitAt on concatenated path gives back original components
+lemma splitAt_concat_vertices_eq (head_verts tail_verts : List V) (v : V)
+    (hhead_ne : head_verts ≠ [])
+    (htail_ne : tail_verts ≠ [])
+    (hhead_last : head_verts.getLast hhead_ne = v)
+    (htail_first : tail_verts.head htail_ne = v)
+    (hhead_findIdx : head_verts.findIdx (· = v) = head_verts.length - 1) :
+    let combined := head_verts ++ tail_verts.tail
+    let idx := combined.findIdx (· = v)
+    (combined.take (idx + 1), combined.drop idx) = (head_verts, tail_verts) := by
+  simp only
+  have hv_mem : v ∈ head_verts := by rw [← hhead_last]; exact List.getLast_mem hhead_ne
+  have h_findIdx : (head_verts ++ tail_verts.tail).findIdx (· = v) = head_verts.length - 1 := by
+    rw [List.findIdx_append]
+    have h_lt : head_verts.findIdx (· = v) < head_verts.length := by
+      exact List.findIdx_lt_length_of_exists ⟨v, hv_mem, by simp⟩
+    simp only [h_lt, ↓reduceIte]
+    exact hhead_findIdx
+  rw [h_findIdx]
+  have h_len : head_verts.length - 1 + 1 = head_verts.length := by
+    have := List.length_pos_of_ne_nil hhead_ne; omega
+  have h_take : (head_verts ++ tail_verts.tail).take head_verts.length = head_verts := List.take_left
+  have hhead_len : 0 < head_verts.length := List.length_pos_of_ne_nil hhead_ne
+  have h_drop : (head_verts ++ tail_verts.tail).drop (head_verts.length - 1) = tail_verts := by
+    rw [List.drop_append]
+    have h_drop_head : head_verts.drop (head_verts.length - 1) = [head_verts.getLast hhead_ne] := by
+      rw [List.drop_eq_getElem_cons (by omega)]
+      simp only [List.getLast_eq_getElem]
+      congr 1
+      rw [List.drop_eq_nil_of_le (by omega)]
+    rw [h_drop_head]
+    have h_sub : head_verts.length - 1 - head_verts.length = 0 := by omega
+    simp only [h_sub, List.drop_zero, List.singleton_append]
+    rw [hhead_last, ← htail_first]
+    exact List.cons_head_tail htail_ne
+  rw [h_len, h_take, h_drop]
+
+-- Helper lemma: splitAt vertices for the head
+lemma splitAt_fst_vertices {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) :
+    (p.splitAt v hv).1.vertices = p.vertices.take (p.vertices.findIdx (· = v) + 1) := by
+  unfold SimpleDigraph.Path.splitAt
+  simp only
+
+-- Helper lemma: splitAt vertices for the tail
+lemma splitAt_snd_vertices {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) :
+    (p.splitAt v hv).2.vertices = p.vertices.drop (p.vertices.findIdx (· = v)) := by
+  unfold SimpleDigraph.Path.splitAt
+  simp only
+
+-- Helper lemma: concat vertices
+omit [DecidableEq V] in
+lemma concat_vertices {D : SimpleDigraph V} (p q : SimpleDigraph.Path D)
+    (hpq : p.finish = q.start) : (p.concat q hpq).vertices = p.vertices ++ q.vertices.tail := by
+  unfold SimpleDigraph.Path.concat
+  simp only
+
+-- Helper lemma: paths are determined by their vertices
+omit [DecidableEq V] in
+lemma path_ext {D : SimpleDigraph V} (p q : SimpleDigraph.Path D)
+    (h : p.vertices = q.vertices) : p = q := by
+  cases p; cases q
+  simp only [SimpleDigraph.Path.mk.injEq] at h ⊢
+  exact h
+
+-- Helper lemma: exchangeTails first component vertices
+lemma exchangeTails_fst_vertices {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    (exchangeTails p q v hv_p hv_q).1.vertices =
+    (p.splitAt v hv_p).1.vertices ++ (q.splitAt v hv_q).2.vertices.tail := by
+  unfold exchangeTails
+  simp only [concat_vertices]
+
+-- Helper lemma: exchangeTails second component vertices
+lemma exchangeTails_snd_vertices {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    (exchangeTails p q v hv_p hv_q).2.vertices =
+    (q.splitAt v hv_q).1.vertices ++ (p.splitAt v hv_p).2.vertices.tail := by
+  unfold exchangeTails
+  simp only [concat_vertices]
+
+/-- A cut exposed by the pattern really constructs the advertised exchanged vertex lists. -/
+theorem exchangeTails_vertex_form {D : SimpleDigraph V} (hac : D.IsAcyclic)
+    (p q : SimpleDigraph.Path D) (v : V) (preI tailI preJ tailJ : List V)
+    (hI : p.vertices = preI ++ v :: tailI) (hJ : q.vertices = preJ ++ v :: tailJ)
+    (hvi : v ∈ p.vertices) (hvj : v ∈ q.vertices) :
+    (exchangeTails p q v hvi hvj).1.vertices = preI ++ v :: tailJ ∧
+    (exchangeTails p q v hvi hvj).2.vertices = preJ ++ v :: tailI := by
+  have index_cut (a b : List V) (hn : (a ++ v :: b).Nodup) :
+      (a ++ v :: b).findIdx (· = v) = a.length := by
+    have hv : v ∉ a := by
+      intro hv
+      exact (List.nodup_append.mp hn).2.2 v hv v (by simp) rfl
+    have hi : a.findIdx (· = v) = a.length := by
+      apply List.findIdx_eq_length.mpr
+      intro x hx
+      simp only [decide_eq_false_iff_not]
+      intro h
+      exact hv (h ▸ hx)
+    simp [List.findIdx_append, List.findIdx_cons, hi]
+  have hi := index_cut preI tailI (hI ▸ p.vertices_nodup_of_acyclic hac)
+  have hj := index_cut preJ tailJ (hJ ▸ q.vertices_nodup_of_acyclic hac)
+  rw [exchangeTails_fst_vertices, exchangeTails_snd_vertices,
+    splitAt_fst_vertices, splitAt_fst_vertices, splitAt_snd_vertices, splitAt_snd_vertices]
+  simp [hI, hJ, hi, hj, List.take_append]
+
+/-- Proof-carrying reconstruction from the two cuts; membership is derived from the equalities. -/
+noncomputable def exchangeTailsOfCuts {D : SimpleDigraph V}
+    (p q : SimpleDigraph.Path D) (v : V) (preI tailI preJ tailJ : List V)
+    (hI : p.vertices = preI ++ v :: tailI) (hJ : q.vertices = preJ ++ v :: tailJ) :
+    SimpleDigraph.Path D × SimpleDigraph.Path D :=
+  exchangeTails p q v (by simp [hI]) (by simp [hJ])
+
+-- concat of splitAt components gives back original
+lemma concat_splitAt_vertices_eq {D : SimpleDigraph V} (p : SimpleDigraph.Path D)
+    (v : V) (hv : v ∈ p.vertices) :
+    (p.splitAt v hv).1.vertices ++ (p.splitAt v hv).2.vertices.tail = p.vertices := by
+  rw [splitAt_fst_vertices, splitAt_snd_vertices]
+  have h1 : (p.vertices.drop (p.vertices.findIdx (· = v))).tail =
+            p.vertices.drop (p.vertices.findIdx (· = v) + 1) := List.tail_drop
+  simp only [h1]
+  exact List.take_append_drop _ _
+
+lemma exchangeTails_involutive {D : SimpleDigraph V} (_hac : D.IsAcyclic)
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    let p' := (exchangeTails p q v hv_p hv_q).1
+    let q' := (exchangeTails p q v hv_p hv_q).2
+    let hv_p' : v ∈ p'.vertices := exchangeTails_fst_mem_v p q v hv_p hv_q
+    let hv_q' : v ∈ q'.vertices := exchangeTails_snd_mem_v p q v hv_p hv_q
+    exchangeTails p' q' v hv_p' hv_q' = (p, q) := by
+  simp only
+  -- Define the components
+  set head_p := (p.splitAt v hv_p).1 with h_head_p_def
+  set tail_p := (p.splitAt v hv_p).2 with h_tail_p_def
+  set head_q := (q.splitAt v hv_q).1 with h_head_q_def
+  set tail_q := (q.splitAt v hv_q).2 with h_tail_q_def
+  -- Key facts about the splitAt components
+  have h_head_p_last : head_p.vertices.getLast head_p.nonempty = v :=
+    SimpleDigraph.Path.splitAt_head_finish p v hv_p
+  have h_tail_p_first : tail_p.vertices.head tail_p.nonempty = v :=
+    SimpleDigraph.Path.splitAt_tail_start p v hv_p
+  have h_head_q_last : head_q.vertices.getLast head_q.nonempty = v :=
+    SimpleDigraph.Path.splitAt_head_finish q v hv_q
+  have h_tail_q_first : tail_q.vertices.head tail_q.nonempty = v :=
+    SimpleDigraph.Path.splitAt_tail_start q v hv_q
+  -- The head findIdx properties
+  have h_head_p_findIdx : head_p.vertices.findIdx (· = v) = head_p.vertices.length - 1 := by
+    rw [splitAt_fst_vertices]
+    exact splitAt_head_findIdx_eq p.vertices v hv_p
+  have h_head_q_findIdx : head_q.vertices.findIdx (· = v) = head_q.vertices.length - 1 := by
+    rw [splitAt_fst_vertices]
+    exact splitAt_head_findIdx_eq q.vertices v hv_q
+  -- p' = head_p ++ tail_q.tail, q' = head_q ++ tail_p.tail
+  have h_p'_verts : (exchangeTails p q v hv_p hv_q).1.vertices =
+                    head_p.vertices ++ tail_q.vertices.tail := exchangeTails_fst_vertices p q v hv_p hv_q
+  have h_q'_verts : (exchangeTails p q v hv_p hv_q).2.vertices =
+                    head_q.vertices ++ tail_p.vertices.tail := exchangeTails_snd_vertices p q v hv_p hv_q
+  -- Use splitAt_concat_vertices_eq to show splitAt on p' gives (head_p, tail_q)
+  have h_split_p' := splitAt_concat_vertices_eq
+    head_p.vertices tail_q.vertices v
+    head_p.nonempty tail_q.nonempty
+    h_head_p_last h_tail_q_first h_head_p_findIdx
+  have h_split_q' := splitAt_concat_vertices_eq
+    head_q.vertices tail_p.vertices v
+    head_q.nonempty tail_p.nonempty
+    h_head_q_last h_tail_p_first h_head_q_findIdx
+  -- Extract the components from the split
+  have h_p'_split_fst : ((exchangeTails p q v hv_p hv_q).1.splitAt v
+      (exchangeTails_fst_mem_v p q v hv_p hv_q)).1.vertices = head_p.vertices := by
+    rw [splitAt_fst_vertices, h_p'_verts]
+    have := h_split_p'
+    simp only at this
+    exact congr_arg Prod.fst this
+  have h_p'_split_snd : ((exchangeTails p q v hv_p hv_q).1.splitAt v
+      (exchangeTails_fst_mem_v p q v hv_p hv_q)).2.vertices = tail_q.vertices := by
+    rw [splitAt_snd_vertices, h_p'_verts]
+    have := h_split_p'
+    simp only at this
+    exact congr_arg Prod.snd this
+  have h_q'_split_fst : ((exchangeTails p q v hv_p hv_q).2.splitAt v
+      (exchangeTails_snd_mem_v p q v hv_p hv_q)).1.vertices = head_q.vertices := by
+    rw [splitAt_fst_vertices, h_q'_verts]
+    have := h_split_q'
+    simp only at this
+    exact congr_arg Prod.fst this
+  have h_q'_split_snd : ((exchangeTails p q v hv_p hv_q).2.splitAt v
+      (exchangeTails_snd_mem_v p q v hv_p hv_q)).2.vertices = tail_p.vertices := by
+    rw [splitAt_snd_vertices, h_q'_verts]
+    have := h_split_q'
+    simp only at this
+    exact congr_arg Prod.snd this
+  -- Now show the result equals (p, q)
+  apply Prod.ext
+  · -- First component
+    apply path_ext
+    rw [exchangeTails_fst_vertices, h_p'_split_fst, h_q'_split_snd]
+    exact concat_splitAt_vertices_eq p v hv_p
+  · -- Second component
+    apply path_ext
+    rw [exchangeTails_snd_vertices, h_q'_split_fst, h_p'_split_snd]
+    exact concat_splitAt_vertices_eq q v hv_q
+
+/-- The head of path p (vertices before v) is preserved after exchangeTails.
+    This is the key lemma for proving that the canonical selection is invariant. -/
+lemma exchangeTails_head_eq {D : SimpleDigraph V} (_hac : D.IsAcyclic)
+    (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    let p' := (exchangeTails p q v hv_p hv_q).1
+    let hv_p' := exchangeTails_fst_mem_v p q v hv_p hv_q
+    (p'.splitAt v hv_p').1.vertices = (p.splitAt v hv_p).1.vertices := by
+  simp only
+  rw [splitAt_fst_vertices, splitAt_fst_vertices]
+  rw [exchangeTails_fst_vertices]
+  -- The head of p' = head_p ++ tail_q.tail is just head_p (up to v)
+  -- We need: (head_p ++ tail_q.tail).take (findIdx (· = v) + 1) = head_p.take (findIdx (· = v) + 1)
+  have h_head_p := splitAt_fst_vertices p v hv_p
+  have h_tail_q := splitAt_snd_vertices q v hv_q
+  -- head_p.vertices ends with v, so findIdx in the concatenation finds v at the same position
+  have h_head_p_last : (p.splitAt v hv_p).1.vertices.getLast (p.splitAt v hv_p).1.nonempty = v :=
+    SimpleDigraph.Path.splitAt_head_finish p v hv_p
+  have h_findIdx_head : (p.splitAt v hv_p).1.vertices.findIdx (· = v) =
+      (p.splitAt v hv_p).1.vertices.length - 1 := splitAt_head_findIdx_eq p.vertices v hv_p
+  -- In the concatenation, findIdx finds v at the same position (end of head_p)
+  have h_concat := splitAt_concat_vertices_eq
+    (p.splitAt v hv_p).1.vertices (q.splitAt v hv_q).2.vertices v
+    (p.splitAt v hv_p).1.nonempty (q.splitAt v hv_q).2.nonempty
+    h_head_p_last (SimpleDigraph.Path.splitAt_tail_start q v hv_q)
+    h_findIdx_head
+  simp only at h_concat
+  exact congr_arg Prod.fst h_concat
+
+/-- Exchanging tails preserves the total weight.
+
+
+    **Proof outline:** The key insight is that `pathWeight` is multiplicative over path
+    concatenation: if p = p₁ ++ p₂ (concatenation at a shared vertex), then
+    w(p) = w(p₁) * w(p₂).
+
+    When we exchange tails at vertex v:
+    - p has weight w(p_head) * w(p_tail) where p_head ends at v and p_tail starts at v
+    - q has weight w(q_head) * w(q_tail) where q_head ends at v and q_tail starts at v
+    - p' = p_head ++ q_tail has weight w(p_head) * w(q_tail)
+    - q' = q_head ++ p_tail has weight w(q_head) * w(p_tail)
+
+    Thus: w(p) * w(q) = w(p_head) * w(p_tail) * w(q_head) * w(q_tail)
+                      = w(p_head) * w(q_tail) * w(q_head) * w(p_tail)  (by commutativity)
+                      = w(p') * w(q')
+
+    **Status:** Now that `exchangeTails` is defined, the proof follows from
+    multiplicativity of `pathWeight` and commutativity of multiplication in K.
+    The proof requires showing pathWeight is multiplicative over path concatenation. -/
+theorem exchangeTails_weight {D : SimpleDigraph V}
+    (w : ArcWeight D K) (p q : SimpleDigraph.Path D) (v : V)
+    (hv_p : v ∈ p.vertices) (hv_q : v ∈ q.vertices) :
+    pathWeight w p * pathWeight w q =
+      pathWeight w (exchangeTails p q v hv_p hv_q).1 *
+      pathWeight w (exchangeTails p q v hv_p hv_q).2 := by
+  -- Split both paths at v
+  let sp_p := p.splitAt v hv_p
+  let sp_q := q.splitAt v hv_q
+  let head_p := sp_p.1
+  let tail_p := sp_p.2
+  let head_q := sp_q.1
+  let tail_q := sp_q.2
+  -- By pathWeight_splitAt:
+  -- pathWeight p = pathWeight head_p * pathWeight tail_p
+  -- pathWeight q = pathWeight head_q * pathWeight tail_q
+  have hp : pathWeight w p = pathWeight w head_p * pathWeight w tail_p := pathWeight_splitAt w p v hv_p
+  have hq : pathWeight w q = pathWeight w head_q * pathWeight w tail_q := pathWeight_splitAt w q v hv_q
+  -- exchangeTails gives us (head_p ++ tail_q, head_q ++ tail_p)
+  -- By pathWeight_concat:
+  -- pathWeight (head_p ++ tail_q) = pathWeight head_p * pathWeight tail_q
+  -- pathWeight (head_q ++ tail_p) = pathWeight head_q * pathWeight tail_p
+  unfold exchangeTails
+  simp only
+  have h1 : head_p.finish = tail_q.start := by
+    rw [SimpleDigraph.Path.splitAt_head_finish, SimpleDigraph.Path.splitAt_tail_start]
+  have h2 : head_q.finish = tail_p.start := by
+    rw [SimpleDigraph.Path.splitAt_head_finish, SimpleDigraph.Path.splitAt_tail_start]
+  rw [pathWeight_concat w head_p tail_q h1, pathWeight_concat w head_q tail_p h2]
+  rw [hp, hq]
+  ring
+
+/-!
+### Deterministic Intersection Data Selection
+
+The sign-reversing involution requires selecting intersection data (i, j, v) deterministically
+so that applying the involution twice returns the original path tuple. The algorithm from
+the LaTeX source is:
+1. Pick the smallest i such that path i contains a crowded point
+2. Pick the first crowded point v on path i (by position in the path)
+3. Pick the largest j such that v is on path j
+
+This selection is preserved under the involution because:
+- The heads of paths i and j (before v) are unchanged
+- So v is still the first crowded point on path i
+- And j is still the largest index containing v
+-/
+
+/-- The set of path indices that have a crowded vertex (shared with another path) -/
+def PathTuple.crowdedPathIndices {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) : Finset (Fin k) :=
+  Finset.univ.filter fun i =>
+    ∃ j : Fin k, i ≠ j ∧ ((pt.paths i).vertices.toFinset ∩ (pt.paths j).vertices.toFinset).Nonempty
+
+/-- The set of crowded vertices on a specific path -/
+def PathTuple.crowdedVerticesOnPath {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (i : Fin k) : Finset V :=
+  (pt.paths i).vertices.toFinset.filter fun v =>
+    ∃ j : Fin k, i ≠ j ∧ v ∈ (pt.paths j).vertices
+
+/-- The set of path indices that contain a given vertex -/
+def PathTuple.pathIndicesContaining {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (v : V) : Finset (Fin k) :=
+  Finset.univ.filter fun i => v ∈ (pt.paths i).vertices
+
+/-- The index of the first crowded vertex on a path (by position) -/
+def PathTuple.firstCrowdedIndexOnPath {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (i : Fin k) : ℕ :=
+  (pt.paths i).vertices.findIdx fun v => v ∈ pt.crowdedVerticesOnPath i
+
+/-- An intersecting path tuple has nonempty crowdedPathIndices -/
+lemma PathTuple.isIntersecting_iff_crowdedPathIndices_nonempty {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) :
+    pt.isIntersecting ↔ pt.crowdedPathIndices.Nonempty := by
+  rw [PathTuple.isIntersecting_iff_exists_crowded]
+  constructor
+  · intro ⟨v, i, j, hij, hvi, hvj⟩
+    use i
+    simp only [crowdedPathIndices, Finset.mem_filter, Finset.mem_univ, true_and]
+    use j, hij, v
+    simp only [Finset.mem_inter, List.mem_toFinset]
+    exact ⟨hvi, hvj⟩
+  · intro ⟨i, hi⟩
+    simp only [crowdedPathIndices, Finset.mem_filter, Finset.mem_univ, true_and] at hi
+    obtain ⟨j, hij, v, hv⟩ := hi
+    simp only [Finset.mem_inter, List.mem_toFinset] at hv
+    exact ⟨v, i, j, hij, hv.1, hv.2⟩
+
+/-- Key lemma: if i is the smallest crowded path index and v is a crowded vertex on path i,
+    then all other paths containing v have index > i -/
+lemma PathTuple.crowded_vertex_other_paths_gt {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B)
+    (i : Fin k) (hi_min : ∀ i' ∈ pt.crowdedPathIndices, i ≤ i')
+    (v : V) (hv : v ∈ pt.crowdedVerticesOnPath i)
+    (j : Fin k) (hj : j ∈ pt.pathIndicesContaining v) (hjne : j ≠ i) :
+    i < j := by
+  simp only [pathIndicesContaining, Finset.mem_filter, Finset.mem_univ, true_and] at hj
+  simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hv
+  obtain ⟨hvi, j', hij', hvj'⟩ := hv
+  by_contra h
+  push Not at h
+  have hj_lt : j < i := lt_of_le_of_ne h hjne
+  have hj_crowded : j ∈ pt.crowdedPathIndices := by
+    simp only [crowdedPathIndices, Finset.mem_filter, Finset.mem_univ, true_and]
+    use i
+    constructor
+    · exact hjne
+    · use v
+      simp only [Finset.mem_inter, List.mem_toFinset]
+      exact ⟨hj, hvi⟩
+  have hi_le_j := hi_min j hj_crowded
+  omega
+
+/-!
+### Canonical Intersection Data Selection
+
+The sign-reversing involution requires selecting intersection data (i, j, v) canonically
+so that applying the involution twice returns the original path tuple. The algorithm is:
+1. i = the smallest path index that contains a crowded point
+2. v = the first crowded point on path i (by position in the vertex list)
+3. j = the largest path index that contains v
+
+This selection is preserved under the involution because:
+- The heads of paths i and j (before v) are unchanged by exchangeTails
+- So v is still the first crowded point on path i
+- And j is still the largest index containing v
+-/
+
+/-- Get the smallest crowded path index. -/
+def PathTuple.minCrowdedPathIndex {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) : Fin k :=
+  pt.crowdedPathIndices.min' (pt.isIntersecting_iff_crowdedPathIndices_nonempty.mp hip)
+
+/-- The minimum crowded path index is in crowdedPathIndices -/
+lemma PathTuple.minCrowdedPathIndex_mem {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    pt.minCrowdedPathIndex hip ∈ pt.crowdedPathIndices :=
+  Finset.min'_mem _ _
+
+/-- The minimum crowded path index is minimal -/
+lemma PathTuple.minCrowdedPathIndex_le {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting)
+    (i : Fin k) (hi : i ∈ pt.crowdedPathIndices) :
+    pt.minCrowdedPathIndex hip ≤ i :=
+  Finset.min'_le _ _ hi
+
+/-- The crowded vertices on the minimum path are nonempty -/
+lemma PathTuple.crowdedVerticesOnPath_minCrowded_nonempty {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    (pt.crowdedVerticesOnPath (pt.minCrowdedPathIndex hip)).Nonempty := by
+  have hi_mem := pt.minCrowdedPathIndex_mem hip
+  simp only [crowdedPathIndices, Finset.mem_filter, Finset.mem_univ, true_and] at hi_mem
+  obtain ⟨j, hij, v, hv⟩ := hi_mem
+  simp only [Finset.mem_inter, List.mem_toFinset] at hv
+  use v
+  simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset]
+  exact ⟨hv.1, j, hij, hv.2⟩
+
+/-- Get the first crowded vertex on the minimum crowded path.
+    This uses List.find? to get the first vertex in the path that is crowded. -/
+noncomputable def PathTuple.firstCrowdedVertex {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) : V :=
+  let i := pt.minCrowdedPathIndex hip
+  let crowded := pt.crowdedVerticesOnPath i
+  -- Find the first vertex in the path that is crowded
+  ((pt.paths i).vertices.find? (fun v => v ∈ crowded)).get (by
+    -- Prove that find? returns some
+    have hne := pt.crowdedVerticesOnPath_minCrowded_nonempty hip
+    obtain ⟨v, hv⟩ := hne
+    apply List.find?_isSome.mpr
+    use v
+    constructor
+    · -- v is in the path
+      simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hv
+      exact hv.1
+    · -- v ∈ crowded
+      simp only [decide_eq_true_eq]
+      exact hv)
+
+/-- The first crowded vertex is in the minimum crowded path -/
+lemma PathTuple.firstCrowdedVertex_mem_path {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    pt.firstCrowdedVertex hip ∈ (pt.paths (pt.minCrowdedPathIndex hip)).vertices := by
+  unfold firstCrowdedVertex
+  have h := Option.get_mem (by
+    have hne := pt.crowdedVerticesOnPath_minCrowded_nonempty hip
+    obtain ⟨v, hv⟩ := hne
+    simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hv
+    apply List.find?_isSome.mpr
+    use v, hv.1
+    simp only [decide_eq_true_eq, crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset]
+    exact hv : ((pt.paths (pt.minCrowdedPathIndex hip)).vertices.find?
+      (fun v => v ∈ pt.crowdedVerticesOnPath (pt.minCrowdedPathIndex hip))).isSome)
+  exact List.mem_of_find?_eq_some h
+
+/-- The first crowded vertex is in the crowdedVerticesOnPath set -/
+lemma PathTuple.firstCrowdedVertex_mem_crowded {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    pt.firstCrowdedVertex hip ∈ pt.crowdedVerticesOnPath (pt.minCrowdedPathIndex hip) := by
+  unfold firstCrowdedVertex
+  have hne := pt.crowdedVerticesOnPath_minCrowded_nonempty hip
+  obtain ⟨v, hv⟩ := hne
+  have h_isSome : ((pt.paths (pt.minCrowdedPathIndex hip)).vertices.find?
+      (fun v => v ∈ pt.crowdedVerticesOnPath (pt.minCrowdedPathIndex hip))).isSome := by
+    apply List.find?_isSome.mpr
+    use v
+    constructor
+    · simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hv
+      exact hv.1
+    · simp only [decide_eq_true_eq]
+      exact hv
+  have h := Option.get_mem h_isSome
+  have hprop := List.find?_some h
+  simp only [decide_eq_true_eq] at hprop
+  exact hprop
+
+/-- The first crowded vertex is crowded (shared with another path) -/
+lemma PathTuple.firstCrowdedVertex_is_crowded {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    ∃ j : Fin k, pt.minCrowdedPathIndex hip ≠ j ∧
+      pt.firstCrowdedVertex hip ∈ (pt.paths j).vertices := by
+  have hcrowded := pt.firstCrowdedVertex_mem_crowded hip
+  simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hcrowded
+  exact hcrowded.2
+
+/-- The set of path indices containing the first crowded vertex (excluding the minimum) -/
+noncomputable def PathTuple.otherPathsContainingFirstCrowded {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) : Finset (Fin k) :=
+  (pt.pathIndicesContaining (pt.firstCrowdedVertex hip)).filter
+    (fun j => j ≠ pt.minCrowdedPathIndex hip)
+
+/-- The set of other paths containing the first crowded vertex is nonempty -/
+lemma PathTuple.otherPathsContainingFirstCrowded_nonempty {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    (pt.otherPathsContainingFirstCrowded hip).Nonempty := by
+  obtain ⟨j, hij, hvj⟩ := pt.firstCrowdedVertex_is_crowded hip
+  use j
+  simp only [otherPathsContainingFirstCrowded, Finset.mem_filter, pathIndicesContaining,
+    Finset.mem_univ, true_and]
+  exact ⟨hvj, hij.symm⟩
+
+/-- Get the largest path index containing the first crowded vertex (other than the minimum) -/
+noncomputable def PathTuple.maxOtherPathIndex {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) : Fin k :=
+  (pt.otherPathsContainingFirstCrowded hip).max' (pt.otherPathsContainingFirstCrowded_nonempty hip)
+
+/-- The max other path index is different from the min crowded path index -/
+lemma PathTuple.maxOtherPathIndex_ne_min {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    pt.maxOtherPathIndex hip ≠ pt.minCrowdedPathIndex hip := by
+  have hmem := Finset.max'_mem _ (pt.otherPathsContainingFirstCrowded_nonempty hip)
+  simp only [otherPathsContainingFirstCrowded, Finset.mem_filter] at hmem
+  exact hmem.2
+
+/-- The first crowded vertex is in the max other path -/
+lemma PathTuple.firstCrowdedVertex_mem_maxOtherPath {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    pt.firstCrowdedVertex hip ∈ (pt.paths (pt.maxOtherPathIndex hip)).vertices := by
+  have hmem := Finset.max'_mem _ (pt.otherPathsContainingFirstCrowded_nonempty hip)
+  simp only [otherPathsContainingFirstCrowded, Finset.mem_filter, pathIndicesContaining,
+    Finset.mem_univ, true_and] at hmem
+  exact hmem.1
+
+/-- Helper function to extract intersection indices from an intersecting path tuple.
+    Returns a pair (i, j) with i ≠ j such that paths i and j intersect. -/
+noncomputable def getIntersectionIndices {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    { p : Fin k × Fin k // p.1 ≠ p.2 } :=
+  Classical.choice (by
+    -- Convert isIntersecting to existential form using isIntersecting_iff_exists_crowded
+    rw [PathTuple.isIntersecting_iff_exists_crowded] at hip
+    obtain ⟨v, i, j, hij, _, _⟩ := hip
+    exact ⟨⟨(i, j), hij⟩⟩)
+
+/-- Helper function to extract full intersection data from an intersecting path tuple.
+    Returns (i, j, v, hvi, hvj) where i ≠ j and v is on both paths i and j. -/
+noncomputable def getIntersectionData {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    { data : (i : Fin k) × (j : Fin k) × { v : V // v ∈ (pt.paths i).vertices ∧ v ∈ (pt.paths j).vertices } //
+      data.1 ≠ data.2.1 } :=
+  Classical.choice (by
+    rw [PathTuple.isIntersecting_iff_exists_crowded] at hip
+    obtain ⟨v, i, j, hij, hvi, hvj⟩ := hip
+    exact ⟨⟨⟨i, j, ⟨v, hvi, hvj⟩⟩, hij⟩⟩)
+
+/-!
+### Canonical (Deterministic) Intersection Data Selection
+
+To prove that signReversing is an involution, we need to select intersection data
+(i, j, v) deterministically so that the same selection is made before and after
+applying the involution.
+
+The canonical selection algorithm:
+1. i = smallest index in crowdedPathIndices (using Finset.min')
+2. v = first crowded vertex on path i (by position in the path)
+3. j = largest index in pathIndicesContaining v, excluding i (using Finset.max')
+
+This selection is preserved under exchangeTails because:
+- The head of path i (vertices before v) is unchanged
+- So v is still the first crowded vertex on path i
+- And j is still the largest index containing v
+-/
+
+/-- A crowded path index has at least 2 paths containing some crowded vertex -/
+lemma PathTuple.crowdedPathIndex_pathIndicesContaining_card {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B)
+    (i : Fin k) (hi : i ∈ pt.crowdedPathIndices)
+    (v : V) (hv : v ∈ pt.crowdedVerticesOnPath i) :
+    1 < (pt.pathIndicesContaining v).card := by
+  simp only [crowdedPathIndices, Finset.mem_filter, Finset.mem_univ, true_and] at hi
+  simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hv
+  obtain ⟨hvi, j, hij, hvj⟩ := hv
+  have hi_mem : i ∈ pt.pathIndicesContaining v := by
+    simp only [pathIndicesContaining, Finset.mem_filter, Finset.mem_univ, true_and]
+    exact hvi
+  have hj_mem : j ∈ pt.pathIndicesContaining v := by
+    simp only [pathIndicesContaining, Finset.mem_filter, Finset.mem_univ, true_and]
+    exact hvj
+  have hne : i ≠ j := hij
+  calc (pt.pathIndicesContaining v).card
+      ≥ ({i, j} : Finset (Fin k)).card := Finset.card_le_card (by
+        intro x hx
+        simp only [Finset.mem_insert, Finset.mem_singleton] at hx
+        rcases hx with rfl | rfl
+        · exact hi_mem
+        · exact hj_mem)
+    _ = 2 := by simp [hne]
+    _ > 1 := by omega
+
+/-- If i is a crowded path index, the set of other path indices containing a crowded vertex on i
+    is nonempty -/
+lemma PathTuple.pathIndicesContaining_sdiff_singleton_nonempty {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B)
+    (i : Fin k) (hi : i ∈ pt.crowdedPathIndices)
+    (v : V) (hv : v ∈ pt.crowdedVerticesOnPath i) :
+    (pt.pathIndicesContaining v \ {i}).Nonempty := by
+  have hcard := pt.crowdedPathIndex_pathIndicesContaining_card i hi v hv
+  rw [Finset.sdiff_nonempty]
+  intro h
+  have hsub : pt.pathIndicesContaining v ⊆ {i} := h
+  have : (pt.pathIndicesContaining v).card ≤ ({i} : Finset (Fin k)).card := Finset.card_le_card hsub
+  simp only [Finset.card_singleton] at this
+  omega
+
+/-- A crowded path index has nonempty crowdedVerticesOnPath -/
+lemma PathTuple.crowdedPathIndex_crowdedVerticesOnPath_nonempty {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B)
+    (i : Fin k) (hi : i ∈ pt.crowdedPathIndices) :
+    (pt.crowdedVerticesOnPath i).Nonempty := by
+  simp only [crowdedPathIndices, Finset.mem_filter, Finset.mem_univ, true_and] at hi
+  obtain ⟨j, hij, v, hv⟩ := hi
+  simp only [Finset.mem_inter, List.mem_toFinset] at hv
+  use v
+  simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset]
+  exact ⟨hv.1, j, hij, hv.2⟩
+
+/-- The first crowded vertex on path i (when i is a crowded path index) exists in the path -/
+lemma PathTuple.firstCrowdedIndexOnPath_lt_length {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B)
+    (i : Fin k) (hi : i ∈ pt.crowdedPathIndices) :
+    pt.firstCrowdedIndexOnPath i < (pt.paths i).vertices.length := by
+  have hne := pt.crowdedPathIndex_crowdedVerticesOnPath_nonempty i hi
+  obtain ⟨v, hv⟩ := hne
+  simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hv
+  unfold firstCrowdedIndexOnPath
+  apply List.findIdx_lt_length_of_exists
+  use v, hv.1
+  simp only [crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset, decide_eq_true_eq]
+  exact hv
+
+/-- The vertex at firstCrowdedIndexOnPath is in crowdedVerticesOnPath -/
+lemma PathTuple.firstCrowdedVertex_mem_crowdedVerticesOnPath {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B)
+    (i : Fin k) (hi : i ∈ pt.crowdedPathIndices) :
+    let idx := pt.firstCrowdedIndexOnPath i
+    let h := pt.firstCrowdedIndexOnPath_lt_length i hi
+    (pt.paths i).vertices.get ⟨idx, h⟩ ∈ pt.crowdedVerticesOnPath i := by
+  simp only
+  unfold firstCrowdedIndexOnPath
+  have h_lt := pt.firstCrowdedIndexOnPath_lt_length i hi
+  unfold firstCrowdedIndexOnPath at h_lt
+  have h_findIdx := @List.findIdx_getElem _ (fun v => v ∈ pt.crowdedVerticesOnPath i)
+    (pt.paths i).vertices h_lt
+  simp only [List.get_eq_getElem]
+  simp at h_findIdx
+  exact h_findIdx
+
+/-- Canonical intersection data: deterministically selects (i, j, v) for an intersecting path tuple.
+    - i = smallest crowded path index
+    - v = first crowded vertex on path i
+    - j = largest path index containing v (other than i) -/
+noncomputable def getCanonicalIntersectionData {D : SimpleDigraph V} {k : ℕ}
+    {A B : kVertex V k} (pt : PathTuple D k A B) (hip : pt.isIntersecting) :
+    { data : (i : Fin k) × (j : Fin k) × { v : V // v ∈ (pt.paths i).vertices ∧ v ∈ (pt.paths j).vertices } //
+      data.1 ≠ data.2.1 } :=
+  let hne := pt.isIntersecting_iff_crowdedPathIndices_nonempty.mp hip
+  let i := pt.crowdedPathIndices.min' hne
+  let hi : i ∈ pt.crowdedPathIndices := Finset.min'_mem _ hne
+  let idx := pt.firstCrowdedIndexOnPath i
+  let h_idx := pt.firstCrowdedIndexOnPath_lt_length i hi
+  let v := (pt.paths i).vertices.get ⟨idx, h_idx⟩
+  let hv_crowded := pt.firstCrowdedVertex_mem_crowdedVerticesOnPath i hi
+    let hv_i : v ∈ (pt.paths i).vertices := by
+      simp only [PathTuple.crowdedVerticesOnPath, Finset.mem_filter, List.mem_toFinset] at hv_crowded
+      exact hv_crowded.1
+    let h_sdiff_ne := pt.pathIndicesContaining_sdiff_singleton_nonempty i hi v hv_crowded
+    let j := (pt.pathIndicesContaining v \ {i}).max' h_sdiff_ne
+    let hj_mem : j ∈ pt.pathIndicesContaining v \ {i} := Finset.max'_mem _ h_sdiff_ne
+    let hj_ne_i : j ≠ i := by
+      simp only [Finset.mem_sdiff, Finset.mem_singleton] at hj_mem
+      exact hj_mem.2
+    let hv_j : v ∈ (pt.paths j).vertices := by
+      simp only [Finset.mem_sdiff, Finset.mem_singleton, PathTuple.pathIndicesContaining,
+                 Finset.mem_filter, Finset.mem_univ, true_and] at hj_mem
+      exact hj_mem.1
+  ⟨⟨i, j, ⟨v, hv_i, hv_j⟩⟩, hj_ne_i.symm⟩
+
+
+
+omit [DecidableEq V] in
+/-- Every finite acyclic digraph is path-finite; no enumeration assumption is needed. -/
+theorem finite_acyclic_path_finite [Fintype V] {D : SimpleDigraph V} (hac : D.IsAcyclic) :
+    D.IsPathFinite := by
+  let encode : SimpleDigraph.Path D → {l : List V // l.Nodup} :=
+    fun p => ⟨p.vertices, p.vertices_nodup_of_acyclic hac⟩
+  have hinj : Function.Injective encode := by
+    intro p q h
+    exact path_ext p q (congrArg (fun l => l.val) h)
+  have : Finite (SimpleDigraph.Path D) := Finite.of_injective encode hinj
+  intro u v
+  exact Set.toFinite _
+
+/-- Data, rather than just an existential proof, for a list cut in a value-producing match. -/
+noncomputable def vertexCut (l : List V) (v : V) (hv : v ∈ l) :
+    {cut : List V × List V // l = cut.1 ++ v :: cut.2} :=
+  Classical.choice (by
+    obtain ⟨pre, tail, h⟩ := List.mem_iff_append.mp hv
+    exact ⟨⟨(pre, tail), h⟩⟩)
+
+end DesignExamples.LGV

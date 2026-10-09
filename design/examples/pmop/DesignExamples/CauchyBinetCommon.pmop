@@ -1,0 +1,85 @@
+-- Shared mathematical definitions and proofs; no new pattern syntax.
+import DesignExamples.DeterminantProductCommon
+
+namespace DesignExamples.CauchyBinet
+
+open Equiv Equiv.Perm Finset Function Matrix
+
+variable {m n : ℕ} {R : Type*} [CommRing R]
+
+/-- The increasing enumeration fixes the order of rows and columns of each minor. -/
+def minorProduct (A : Matrix (Fin m) (Fin n) R) (B : Matrix (Fin n) (Fin m) R)
+    (S : Finset (Fin n)) : R :=
+  if h : S.card = m then
+    det (A.submatrix id (S.orderEmbOfFin h)) *
+      det (B.submatrix (S.orderEmbOfFin h) id)
+  else 0
+
+/-- Reindex injective selections with a fixed image by permutations of its sorted enumeration. -/
+theorem sum_fixed_image (S : Finset (Fin n)) (hS : S.card = m)
+    (F : (Fin m → Fin n) → R) :
+    (∑ p ∈ (univ.filter Injective).filter (fun p => univ.image p = S), F p) =
+      ∑ τ : Perm (Fin m), F (fun i => S.orderEmbOfFin hS (τ i)) := by
+  classical
+  let e := S.orderEmbOfFin hS
+  have he : ∀ τ : Perm (Fin m), univ.image (fun i => e (τ i)) = S := by
+    intro τ
+    change univ.image (e ∘ τ) = S
+    rw [← image_image, image_univ_of_surjective τ.surjective, S.image_orderEmbOfFin_univ hS]
+  apply (sum_bij (fun τ _ i => e (τ i)) ?_ ?_ ?_ (fun _ _ => rfl)).symm
+  · intro τ _
+    simp only [mem_filter, mem_univ, true_and]
+    exact ⟨e.injective.comp τ.injective, he τ⟩
+  · intro τ _ υ _ h
+    apply Equiv.ext
+    intro i
+    exact e.injective (congrFun h i)
+  · intro p hp
+    simp only [mem_filter, mem_univ, true_and] at hp
+    let q : Fin m → S := fun i => ⟨p i, by rw [← hp.2]; exact mem_image_of_mem p (mem_univ i)⟩
+    have hq : Injective q := fun i j h => hp.1 (congrArg Subtype.val h)
+    let τ : Perm (Fin m) := Equiv.ofBijective
+      (fun i => (S.orderIsoOfFin hS).symm (q i))
+      ((S.orderIsoOfFin hS).symm.injective.comp hq).bijective_of_finite
+    refine ⟨τ, mem_univ _, ?_⟩
+    funext i
+    change ((S.orderIsoOfFin hS) ((S.orderIsoOfFin hS).symm (q i))).val = p i
+    rw [OrderIso.apply_symm_apply]
+
+theorem sum_injections_by_image (F : (Fin m → Fin n) → R) :
+    (∑ p : Fin m → Fin n with Injective p, F p) =
+      ∑ S ∈ univ.powersetCard m,
+        if h : S.card = m then ∑ τ : Perm (Fin m),
+          F (fun i => S.orderEmbOfFin h (τ i)) else 0 := by
+  classical
+  have hg : ∀ p ∈ (univ : Finset (Fin m → Fin n)).filter Injective, univ.image p ∈ (univ : Finset (Fin n)).powersetCard m := by
+    intro p hp
+    simp only [mem_filter, mem_univ, true_and] at hp
+    simp [mem_powersetCard, card_image_of_injective _ hp]
+  rw [← sum_fiberwise_of_maps_to hg F]
+  apply sum_congr rfl
+  intro S hS
+  have h : S.card = m := (mem_powersetCard.mp hS).2
+  rw [dif_pos h, sum_fixed_image S h F]
+
+/-- Once a subset has been selected, the remaining two permutation sums factor. -/
+theorem sum_permutations (M N : Matrix (Fin m) (Fin m) R) :
+    (∑ τ : Perm (Fin m), ∑ σ : Perm (Fin m), ((sign σ : ℤ) : R) *
+      ∏ i, M (σ i) (τ i) * N (τ i) i) = det M * det N := by
+  classical
+  simp_rw [prod_mul_distrib, ← mul_assoc]
+  have hM : ∀ τ : Perm (Fin m),
+      (∑ σ : Perm (Fin m), ((sign σ : ℤ) : R) * ∏ i, M (σ i) (τ i)) =
+        ((sign τ : ℤ) : R) * det M := by
+    intro τ
+    simpa only [det_apply', submatrix_apply, id_eq] using det_permute' τ M
+  simp_rw [← sum_mul, hM]
+  calc
+    _ = det M * ∑ τ : Perm (Fin m), ((sign τ : ℤ) : R) * ∏ i, N (τ i) i := by
+      rw [mul_sum]
+      apply sum_congr rfl
+      intro τ _
+      ring
+    _ = det M * det N := by rw [← det_apply' N]
+
+end DesignExamples.CauchyBinet

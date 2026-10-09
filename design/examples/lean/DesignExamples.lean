@@ -14,3 +14,6 @@ import DesignExamples.PatternStyle.TwoCancellations
 import DesignExamples.PatternStyle.Resolution
 import DesignExamples.PatternStyle.WalkInsertion
 import DesignExamples.PatternStyle.DeterminantProduct
+import DesignExamples.PatternStyle.CauchyBinet
+import DesignExamples.PatternStyle.LGV
+import DesignExamples.PatternStyle.EulerCircuit

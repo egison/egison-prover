@@ -2,7 +2,8 @@
 
 [わかりやすさの基準](proof-brevity.md) に従い、選ぶ配置、構成要素の関係、場合分けの理由、
 結論の作り方をパターンから読める例を比較する。
-**解消規則の正しさ**、**閉じた歩道の挿入**、**行列式の積の公式**を、完全なコードで比較する。
+**解消規則の正しさ**、**閉じた歩道の挿入**、**行列式の積の公式**、
+**Cauchy–Binet**、**LGV**、**オイラー閉路**を、定理全体と補助証明を含むコードで比較する。
 推論の形、構造の接続、等式を証明する途中の打ち消しを、パターンから読めるようにする。
 
 既存の例も含めると、次がこの基準に合う。
@@ -307,82 +308,171 @@ Mathlib の [行列式の証明](https://leanprover-community.github.io/mathlib4
 Mathlib から改変した証明部分の著作権表示を各ソースに残し、Apache 2.0 のライセンスを
 [LICENSE-Mathlib](examples/LICENSE-Mathlib) に置く。
 
-## 4. 重要な定理の証明へ広げる候補
-
-### Cauchy–Binet の公式
+## 4. Cauchy–Binet の公式
 
 m×n 行列 A と n×m 行列 B について、積の行列式を部分行列の行列式の和で表す。
-A の S 列と B の S 行を、同じ昇順の添字で並べた正方行列をそれぞれ A[:,S],B[S,:] とすると、
+S の添字を昇順に並べて作る正方行列を A[:,S],B[S,:] とすると、任意の可換環で
 
 \[
 \det(AB)=\sum_{S\subseteq\{1,\ldots,n\},\ |S|=m}
   \det(A[:,S])\det(B[S,:]).
 \]
 
-上の打ち消しはこの証明でも使える。展開の中間添字を選ぶ写像 p:{1,…,m}→{1,…,n} のうち、
-同じ像を持つ2入力がある場合を同じパターンで取り出し、その p の項を打ち消す。
-単射の p を、その像 S と S を並べる置換へ分けると右辺になる。
-[公式と打ち消しの証明](https://faabian.github.io/algebraic-combinatorics/blueprint/sect0037.html)
-を参照する。正方行列の場合は上の積の公式になる。
+両版の `cauchy_binet` はこの公式全体を証明する。m=0、n=0、m>n も含む。
+`minorProduct` は、S の昇順の列挙で A の列と B の行を選び、二つの行列式を掛ける定義である。
 
-任意の長方形行列についての打ち消しは検査済みである。
-公式全体へ進めるには、単射の写像を像と置換で添字付け直す証明と、
-二つの部分行列の行列式へ和を分ける証明を加える。
-等式を証明する途中で、パターンによる選択が項の消去に直接使われる候補である。
-
-### Lindström–Gessel–Viennot の補題
-
-有限有向グラフに有向閉路がないとする。辺の重みを可換環の値とし、道の重みを通る辺の重みの積とする。
-aᵢ から bⱼ への道の重みの総和を行列の (i,j) 成分に置くと、その行列式は、
-頂点を共有しない道の組の重みの符号付きの和になる。
-符号は終点の対応を表す置換の符号である。
-証明では、交差する道の組を打ち消す。
-[定理と証明](https://ocw.mit.edu/courses/18-212-algebraic-combinatorics-spring-2019/resources/mit18_212s19_lec36/)
-にこの操作が示されている。
-
-選んだ二つの道 Pᵢ,Pⱼ を同時に分解するパターンの形は、次のようになる。
-
-```text
-($preI ++ $v :: $tailI, $preJ ++ #v :: $tailJ)
+```lean
+theorem cauchy_binet {m n : ℕ} {R : Type*} [CommRing R]
+    (A : Matrix (Fin m) (Fin n) R) (B : Matrix (Fin n) (Fin m) R) :
+    det (A * B) = ∑ S ∈ (univ : Finset (Fin n)).powersetCard m, minorProduct A B S
 ```
 
-同じ頂点 v 以降の部分を交換すると、構成結果は次の形になる。
+行列式を展開すると、中間添字を選ぶ写像 p:Fin m→Fin n の和が現れる。
+単射でない p の項は §3 の長方形行列の `noninjective_cancel` で打ち消す。
+提案版では、この補題の `$i → $k :: $j → #k :: _` が同じ中間添字を使う2位置を選ぶ。
+Cauchy–Binet の主定理は、そのパターン証明を呼び出してから和を整理する。
+通常版と手動展開版は、それぞれ通常の補題とパターンの証拠から始まる補題を使う。
 
-```text
-(preI ++ v :: tailJ, preJ ++ v :: tailI)
+残った単射の p は、その像 S と、S の昇順の列挙を並べ替える置換へ対応付ける。
+`sum_fixed_image` が固定した S でこの対応を証明し、`sum_injections_by_image` が単射の選択を
+像ごとの和にまとめる。
+最後に `sum_permutations` が二つの置換の和を部分行列の行列式の積へ分ける。
+これらの補助証明はすべて共通ソースに含む。
+[公式の数学的な証明](https://faabian.github.io/algebraic-combinatorics/blueprint/sect0037.html)
+も参照できる。
+
+| 内容 | Lean | 提案ソース |
+|---|---|---|
+| 部分行列、像と置換への対応、和の整理 | [CauchyBinetCommon.lean](examples/lean/DesignExamples/CauchyBinetCommon.lean) | [CauchyBinetCommon.pmop](examples/pmop/DesignExamples/CauchyBinetCommon.pmop) |
+| 公式全体の証明 | [CauchyBinet.lean](examples/lean/DesignExamples/CauchyBinet.lean) | [CauchyBinet.pmop](examples/pmop/DesignExamples/CauchyBinet.pmop) |
+| パターンの相殺補題を使う全証明 | [PatternStyle/CauchyBinet.lean](examples/lean/DesignExamples/PatternStyle/CauchyBinet.lean) | — |
+
+## 5. Lindström–Gessel–Viennot の補題
+
+有向閉路のないグラフで、辺の重みを可換環の値とし、道の重みを通る辺の重みの積とする。
+aᵢ から bⱼ への道の重みの総和を行列 M の (i,j) 成分に置くと、
+
+\[
+\det M=\sum_{\sigma\in S_k}\operatorname{sgn}(\sigma)
+  \sum_{\substack{P_i:a_i\to b_{\sigma(i)}\\
+                  P_i\text{ が互いに頂点を共有しない}}}
+     \prod_i w(P_i).
+\]
+
+`lgv_weighted_digraph` は、各始点・終点の間の道の集合が有限である一般のグラフに対して、
+この重み付きの公式全体を証明する。頂点集合自体は無限でもよい。
+`lgv_finite` は有限で閉路のない有向グラフの場合である。
+共通の `finite_acyclic_path_finite` が、道は頂点を繰り返さないため道の集合が有限であることを証明する。
+どちらも任意の k と可換環を扱う。
+[MIT の講義資料](https://ocw.mit.edu/courses/18-212-algebraic-combinatorics-spring-2019/resources/mit18_212s19_lec36/)
+に数学的な交換操作が示されている。
+
+証明は、行列式を道の組の符号付きの和へ展開し、頂点を共有する組を相殺する。
+交換する道と交点は、次の順で固定する。
+
+1. 他の道と頂点を共有する道のうち、添字 i が最小のものを選ぶ。
+2. その道で最初に共有される頂点 v を選ぶ。
+3. v を通る他の道のうち、添字 j が最大のものを選ぶ。
+
+`getCanonicalIntersectionData` はこの選択の値と証拠を返す。
+列挙で最初に成功した組をそのまま使うことは仮定しない。
+通常版は、二つの道を `splitAt` で v の位置に分けて交換する。
+提案版は、同じ選択のあとに二つの道の頂点列を同時に分解する。
+
+```egison
+match cuts : ((sp.2.paths i).vertices, (sp.2.paths j).vertices) as (list V, list V) with
+| ($preI ++ #v :: $tailI, $preJ ++ #v :: $tailJ) =>
+  -- 腕では、二つの分解の等式から交換後の道を構成する。
+  let exchanged := exchangeTailsOfCuts
+    (sp.2.paths i) (sp.2.paths j) v preI tailI preJ tailJ cuts.1 cuts.2
+exhaustive by ⟨List.mem_iff_append.mp hvi, List.mem_iff_append.mp hvj⟩
 ```
 
-共有頂点、交換する部分、終点の交換が、選択と構成の形から見える。
-二つの道を合わせて通る辺は重複も含めて保存されるため、重みの積を保ち、符号は反転する。
-道の形を組み替える操作で行列式の等式を証明するため、数学的な構成と代数的な結論の対応が明瞭である。
+これは選択部分の抜粋であり、リンク先のソースには、全ての道の更新、始点・終点の証明、
+置換の更新と、その後の相殺の証明も含む。
+`exchangeTails_vertex_form` は、構成される二つの頂点列が
+`preI ++ v :: tailJ` と `preJ ++ v :: tailI` であることを証明する。
+閉路がないので v は各道に1回だけ現れ、パターンの分解と `splitAt` は同じ位置を示す。
 
-対合を作るには、交点の選び方も定める必要がある。
-交差する道のうち最小の添字 i、その道で最初の交点 v、v を通る他の道の最小の添字 j を選ぶ。
-交換後もこの i,v,j が選ばれることを証明することで、2回の適用で元に戻る。
-存在だけを保証する任意のマッチ結果からは、この選択の保存は導かれない。
-パターンは配置を表し、交点の選択条件と保存の証明も明示して渡す設計が必要になる。
-この定理全体と、重みの保存・符号反転・選択の保存は、完全な両版を作る次の対象である。
+`signReversing_canonical_eq` は、交換後にも同じ i,j,v が選ばれることを証明する。
+`signReversing_involutive`、`signReversing_sign`、`signReversing_weight` が、それぞれ
+2回の交換で元に戻ること、符号の反転、重みの保存を証明する。
+`sum_ipatWithPerm_signed_weight_eq_zero` が頂点を共有する組の総和を0にし、
+最後に残りの組の和を公式の右辺へ整理する。両版ともこれらの全補助証明を含む。
+**交点の位置と交換結果はパターンから見えるが、選択の保存を示す数学的な証明も必要である。**
 
-### オイラー閉路の存在定理
+値を返す `signReversing` の手動展開は、存在命題からデータを得る `vertexCut` を使う。
+`Prop` の存在証明から値へ直接場合分けする操作は用いず、ここでは Lean の標準の選択公理を使う
+`noncomputable` な定義として検査する。有限リストのマッチャーによる実行と証拠生成は処理系の実装課題である。
 
-有限で連結な無向グラフは、すべての頂点の次数が偶数なら、すべての辺をちょうど1回通って
-出発点に戻る**オイラー閉路**を持つ。次数は頂点につながる辺の数である。
-証明では、一度作った閉じた歩道上の頂点から、未使用の辺だけで別の閉じた歩道を作り、
-共有頂点で挿入する操作を繰り返す。
-[構成による証明](https://www.maths.tcd.ie/~stalker/22C00/notes/7.10-eulerian-trails-and-circuits.html)
-で使われるこの操作を、§2 のパターンで示せる。
+| 内容 | Lean | 提案ソース |
+|---|---|---|
+| グラフ、道、重み、切断と交換、交点の選択の全定義・証明 | [LGVCommon.lean](examples/lean/DesignExamples/LGVCommon.lean) | [LGVCommon.pmop](examples/pmop/DesignExamples/LGVCommon.pmop) |
+| 選択の保存、対合、重み付きの公式の全証明 | [LGV.lean](examples/lean/DesignExamples/LGV.lean) | [LGV.pmop](examples/pmop/DesignExamples/LGV.pmop) |
+| 二つの列のパターンを展開した全証明 | [PatternStyle/LGV.lean](examples/lean/DesignExamples/PatternStyle/LGV.lean) | — |
 
-定理全体へ進めるには、辺を1回ずつ通る条件、使用した辺の集合と残りの辺の集合、
-残りの次数の偶数性、未使用の辺があるとき共有頂点を選べることを証明する。
-挿入によって使用済みの辺が増え、有限回で全辺を使うことも示す。
-§2 の検査済み `Walk` は辺の反復を許すため、これらの証拠を加えてオイラー閉路を構成する。
+LGV の証明は [公開された形式化](https://github.com/faabian/algebraic-combinatorics/blob/3b333089a7a7cd6478065fcfbd91c2b566fccac0/AlgebraicCombinatorics/Determinants/LGV2.lean)
+を現在の Lean と Mathlib に合わせて移植し、有限グラフの場合とパターンによる切断の証明を加えた。
+移植・改変した LGV のソースは原著の **CC BY-NC 4.0（表示・非営利）** を維持する。
+著作権・出典を各ソースに明記し、[LICENSE-AlgebraicCombinatorics](examples/LICENSE-AlgebraicCombinatorics)
+にライセンス全文を保存する。他の例のライセンスとは区別する。
 
-これらの候補では、**証明中に条件を満たす部分構造を選び、それを組み替えて等式や存在を導く**。
-行列式の打ち消しと道の接続を合わせて扱うことで、等式の証明と構成的な存在証明の両方を比較できる。
+## 6. オイラー閉路の定理
+
+オイラー閉路は、全ての辺をちょうど1回ずつ通り、始点へ戻る歩道である。
+有限無向グラフを `SimpleGraph`、すなわち自己辺と平行辺のないグラフとして表す。
+指定した始点 s からオイラー閉路が存在するための必要十分条件は、
+全頂点の次数が偶数で、辺を持つ全頂点が s から到達可能であることになる。
+次数とは、その頂点につながる辺の本数である。
+孤立頂点を許し、辺がない場合には長さ0の歩道をオイラー閉路に含める。
+連結なグラフでは、次数の偶数性だけが条件となる。
+
+```lean
+theorem euler_circuit_iff (s : V) :
+    (∃ p : G.Walk s s, p.IsEulerian) ↔
+      (∀ v, Even (G.degree v)) ∧ (∀ v, 0 < G.degree v → G.Reachable s v)
+```
+
+両版には、この必要十分条件、存在の証明 `euler_circuit`、連結な場合の
+`connected_euler_circuit_iff` を置く。
+[閉路を挿入する数学的な証明](https://www.maths.tcd.ie/~stalker/22C00/notes/7.10-eulerian-trails-and-circuits.html)
+を参考に、次の補助証明を含める。
+
+- `maximal_trail`：辺を繰り返さない歩道の長さは辺の数以下なので、始点を固定して最長のものを選べる。
+- `closed_trail`：最長の歩道の終点では未使用の辺がなく、次数の偶数性から始点と終点が一致する。
+- `residual_even`：閉じた歩道が使った辺を除くと、各頂点の次数から偶数本が引かれるため、偶数性が保たれる。
+- `unused_boundary` と `insertion_site`：未使用の辺があれば、到達可能性から、現在の歩道上に未使用の辺が接続する頂点を選べる。
+- `splice_trail`：その頂点で、残りの辺だけから作った閉じた歩道を挿入する。二つの歩道の辺は重ならないため、辺を繰り返さない。
+
+通常版は頂点 v の所属を取り出し、`takeUntil` と `dropUntil` で元の歩道を切る。
+提案版の `walk G` は、その切断と「未使用の辺が v につながる」という条件を一緒に返す。
+
+```egison
+match h : p as walk G with
+| $pre ++ $v :: $post where ∃ w, G.Adj v w ∧ s(v, w) ∉ p.edges =>
+  have hsplit : pre.append post = p := h.1
+  obtain ⟨w, hw, he⟩ := h.2
+  -- 残りのグラフで v から始まる閉じた歩道 q を作り、pre、q、post を接続する。
+exhaustive by insertion_site p reach hnot hp
+```
+
+`walk G` では、pre は s→v、post は v→s の歩道である。
+このパターンの v は接続する頂点で、`::` は新しい辺を追加する操作ではない。
+証拠は `pre.append post = p` と、未使用の辺につながるという条件の組である。
+残りの辺から作る閉じた歩道 q は少なくとも1辺を使うため、挿入すると元の p より長くなる。
+これが p の最長性に矛盾するので、p はすでに全辺を使っている。
+**有限性による最長性と、挿入による長さの増加まで含めて存在を証明する。**
+必要性は、閉じた歩道の各頂点で辺を偶数本使うことと、各辺の端点へ歩道の前半で到達できることから従う。
+
+| 内容 | Lean | 提案ソース |
+|---|---|---|
+| 最長性、偶数性、挿入場所、辺を繰り返さない接続の全証明 | [EulerCircuitCommon.lean](examples/lean/DesignExamples/EulerCircuitCommon.lean) | [EulerCircuitCommon.pmop](examples/pmop/DesignExamples/EulerCircuitCommon.pmop) |
+| 存在・必要十分条件・連結な場合の全証明 | [EulerCircuit.lean](examples/lean/DesignExamples/EulerCircuit.lean) | [EulerCircuit.pmop](examples/pmop/DesignExamples/EulerCircuit.pmop) |
+| 歩道の切断のパターンを展開した全証明 | [PatternStyle/EulerCircuit.lean](examples/lean/DesignExamples/PatternStyle/EulerCircuit.lean) | — |
 
 ## 検査と設計への反映
 
-§1–3 の通常の Lean 版と、パターンの証拠を手動で展開した版を `lake build` に含める。
+§1–6 の通常の Lean 版と、パターンの証拠を手動で展開した版を `lake build` に含める。
 全定義と補助証明を保存し、両版で同じ数学的なライブラリと補助補題を使う。
 [Audit.lean](examples/lean/Audit.lean) で公理への依存を確認する。
 検査環境と `.pmop` の位置付けは [コードの仕様](examples/README.md) に揃える。

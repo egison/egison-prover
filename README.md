@@ -18,6 +18,13 @@ It also examines proof size, with checked examples of inverse-pair deletion and
 induction over the number of selected pairs.
 [Further examples](design/pwl-readable-proofs.md) show complementary literals in
 resolution proofs and a shared vertex when inserting a closed walk into another walk.
+The [complete examples](design/examples/README.md) also include both presentations
+of Cauchy–Binet, weighted LGV, and the Euler-circuit criterion, with all helper proofs.
+Their Lean proofs and manual expansions of the proposed patterns are checked;
+the `.pmop` parser and its translation into proof terms remain to be implemented.
+The adapted LGV sources retain their upstream
+[CC BY-NC 4.0 license](design/examples/LICENSE-AlgebraicCombinatorics), separately
+from the rest of the repository.
 
 The Haskell implementation is a dependent-type-checking prototype using
 the syntax in `sample/*.pegi`. The examples in `sample/pmop/*.pmop` are design

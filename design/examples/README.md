@@ -18,6 +18,9 @@
 | 解消規則・有限導出の正しさと充足不可能性 | [Resolution.lean](lean/DesignExamples/Resolution.lean) | [Resolution.pmop](pmop/DesignExamples/Resolution.pmop) |
 | 閉じた歩道の挿入 | [WalkInsertion.lean](lean/DesignExamples/WalkInsertion.lean) | [WalkInsertion.pmop](pmop/DesignExamples/WalkInsertion.pmop) |
 | 行列式の積の公式と長方形行列での項の打ち消し | [DeterminantProduct.lean](lean/DesignExamples/DeterminantProduct.lean) | [DeterminantProduct.pmop](pmop/DesignExamples/DeterminantProduct.pmop) |
+| Cauchy–Binet の公式全体 | [CauchyBinet.lean](lean/DesignExamples/CauchyBinet.lean) | [CauchyBinet.pmop](pmop/DesignExamples/CauchyBinet.pmop) |
+| 重み付き LGV の公式全体と有限有向グラフの場合 | [LGV.lean](lean/DesignExamples/LGV.lean) | [LGV.pmop](pmop/DesignExamples/LGV.pmop) |
+| オイラー閉路の存在・必要十分条件 | [EulerCircuit.lean](lean/DesignExamples/EulerCircuit.lean) | [EulerCircuit.pmop](pmop/DesignExamples/EulerCircuit.pmop) |
 | 隣接する同一要素の消去の局所合流性・合流性 | [LocalConfluence.lean](lean/DesignExamples/LocalConfluence.lean) | [LocalConfluence.pmop](pmop/DesignExamples/LocalConfluence.pmop) |
 | 離れた逆元対の全候補の正しさ・任意の個数への拡張 | [TwoCancellations.lean](lean/DesignExamples/TwoCancellations.lean) | [TwoCancellations.pmop](pmop/DesignExamples/TwoCancellations.pmop) |
 | 一般の鳩の巣原理 | [Pigeonhole.lean](lean/DesignExamples/Pigeonhole.lean) | [Pigeonhole.pmop](pmop/DesignExamples/Pigeonhole.pmop) |
@@ -58,6 +61,30 @@
 証明は Mathlib の行列式の証明に基づく。改変部分の著作権表示をソースに残し、
 ライセンスを [LICENSE-Mathlib](LICENSE-Mathlib) に置く。
 
+Cauchy–Binet・LGV・オイラー閉路も、定理全体の両版を置く。
+それぞれの共通の型と全補助証明は
+[CauchyBinetCommon.lean](lean/DesignExamples/CauchyBinetCommon.lean) /
+[CauchyBinetCommon.pmop](pmop/DesignExamples/CauchyBinetCommon.pmop)、
+[LGVCommon.lean](lean/DesignExamples/LGVCommon.lean) /
+[LGVCommon.pmop](pmop/DesignExamples/LGVCommon.pmop)、
+[EulerCircuitCommon.lean](lean/DesignExamples/EulerCircuitCommon.lean) /
+[EulerCircuitCommon.pmop](pmop/DesignExamples/EulerCircuitCommon.pmop) に含める。
+[PatternStyle/CauchyBinet.lean](lean/DesignExamples/PatternStyle/CauchyBinet.lean)、
+[PatternStyle/LGV.lean](lean/DesignExamples/PatternStyle/LGV.lean)、
+[PatternStyle/EulerCircuit.lean](lean/DesignExamples/PatternStyle/EulerCircuit.lean) がパターン版の全証明の手動展開である。
+Cauchy–Binet はパターン版の長方形行列の相殺補題を使う。
+LGV は交点での二つの列の切断、オイラー閉路は未使用の辺につながる頂点での歩道の切断を使う。
+[数学的な言明と証明の対応](../pwl-readable-proofs.md) に、補助証明と腕が使う証拠を記す。
+
+LGV の移植・改変した証明ソースは
+[AlgebraicCombinatorics/Determinants/LGV2.lean](https://github.com/faabian/algebraic-combinatorics/blob/3b333089a7a7cd6478065fcfbd91c2b566fccac0/AlgebraicCombinatorics/Determinants/LGV2.lean)
+（Copyright Meta Platforms, Inc. and affiliates）に由来し、原著の **CC BY-NC 4.0（表示・非営利）** を維持する。
+その対象は `LGV.lean`、`LGVCommon.lean`、`PatternStyle/LGV.lean` と対応する `.pmop` である。
+著作権・出典と改変の記録をソースの先頭に明記し、
+[LICENSE-AlgebraicCombinatorics](LICENSE-AlgebraicCombinatorics) に原著のライセンス全文を保存する。
+これらのファイルにはリポジトリの MIT ライセンスを適用しない。
+Mathlib 由来のソースは引き続き [LICENSE-Mathlib](LICENSE-Mathlib) の Apache 2.0 を維持する。
+
 ## 検査方法と依存関係
 
 Lean 版は Lean 4.31.0 と Mathlib の `v4.31.0` を使う。
@@ -94,6 +121,9 @@ Lean での展開には `∃`（命題としての存在）と選言を使う。
 核の設計で用いる依存対型（値とその値に依存する証拠の組）との対応は、
 値を計算に使える条件も含めて定義する必要がある。
 命題の証明から任意の計算用の値を取り出せるという規則は前提にしない。
+LGV の値を返す定義の手動展開は、証明付きの切断を選ぶ `vertexCut` を使う。
+これは Lean の標準の選択公理を用いる `noncomputable` な定義である。
+実行可能なリストの選択と証拠の生成は、処理系側で接続する必要がある。
 有限列挙から値と証拠を構成する実行と、命題としての成立の検査を接続する。
 
 両版の基礎部分には Lean と同じ数学ライブラリを想定する。
@@ -167,6 +197,7 @@ exhaustive by coverage
 | `set (A → B)` | 有限の型 A 上の全関数 | キーの所属と出力の等式を返す。選択後も同じグラフを使う |
 | `set (A × B)` | `Finset (A × B)` | `p → q` は所属するペアを選ぶ。選択しても対象は減らない |
 | `list A` | `List A` | `::` と `++` はリストの等式による分解。残りも `List A` |
+| `walk G` | `G.Walk s t` | `$pre ++ $v :: $post` は pre:s→v、post:v→t と `pre.append post = 対象`。`where Q` は条件 Q の証明を加える |
 | `(M₁, …, Mₖ)` | 各 Mᵢ の対象型の組 | 各成分を対応するマッチャーで照合する。束縛は左から右に導入し、証拠は各成分の関係の連言 |
 | `list (Fin n → A)` | 有限関数 | 入力位置の昇順に `(i, f i)` を並べる。前後関係は入力位置の不等式になる |
 | `bipartite_graph X Y` | 辺の関係 `E : X → Y → Prop` | `$S ⤳ $T` は有限部分集合 S,T と `neighbors E S ⊆ T` の証拠 |
@@ -204,6 +235,12 @@ exhaustive by coverage
 - 行列式の積の公式：`i ≠ j`、`p i = k`、`p j = k`。
   `SharedImage p` がこの存在を表す。2位置を交換して積を保ち、符号を反転することを
   `noninjective_cancel` の腕で証明し、展開後の和から積の公式を導く。
+- LGV の二つの列：`Pᵢ.vertices = preI ++ v :: tailI` と `Pⱼ.vertices = preJ ++ v :: tailJ`。
+  交点の選択は `getCanonicalIntersectionData` で先に固定する。交換後の頂点列、重みの積、
+  符号、選択の保存、2回の交換で戻ることまで証明する。
+- オイラー閉路の切断：`pre.append post = p` と `∃ w, G.Adj v w ∧ s(v,w) ∉ p.edges`。
+  pre、post は頂点列ではなく端点付きの歩道である。残りのグラフの偶数性と、
+  挿入する閉じた歩道の辺が元の歩道と重ならないことを共通の補助証明で示す。
 - 対合の対：`S.val = x :: σ x :: R`。
   `pair_evidence` が所属、相異性、R と2要素を除いた集合の多重集合との等式を導く。
   閉性・対合・固定点の不在の引き継ぎと要素数の減少は `pair_remainder` で証明する。
