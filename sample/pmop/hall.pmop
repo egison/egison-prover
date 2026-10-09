@@ -160,23 +160,21 @@ lemma hall_3_violator_no_matching :
 -- (a) 否定 value pattern !#e:
 --       value pattern の否定版。target が e と等しくないなら match。
 --       Ramsey の反対色三角形 (`!#c & $c'`) と同じ仕掛け。
---       decidable_eq を要求する。
+--       探索による判定には decidable_eq を要求し、証明では不等式の証拠を扱う。
 -- (b) 連接パターン p₁ & p₂:
 --       同じ target に対し両方マッチしたとき成立。
 --       ($b₂ & !#b₁) は「b₂ という名前で束縛、ただし b₁ と異なる値」。
 -- (c) multiset の bipartite 観察:
 --       (Fin n × Fin n) の multiset を辺集合と見て、boys 側 distinct
 --       かつ girls 側 distinct な部分多重集合を取り出すパターン。
---       prelude の bipartite_graph matcher を導入したが、本ファイルでは
---       multiset + !# で素直に書ける範囲なので multiset matcher で済ませた。
---       bipartite_graph matcher の真価は、Hall 条件を matcher 側に組み込んで
---       hypothesis を吸収させる拡張 (将来的) で出る。
+--       本ファイルは3×3の辺集合を multiset として観察する設計スケッチ。
+--       一般形は design/pwl-hall.md の ⤳ で Hall 条件に違反する部分集合を表し、
+--       matching_of でマッチングの関数と証拠を取り出す。
+--       両方の表現の型・分解・証拠の規則を揃えて実装する。
 -- (d) decide tactic:
 --       重複を除いた辺集合への帰着を証明した後、512 通りの全数検査を行う。
 --
 -- 一般形 Hall:
---   n を変数にした一般の Hall は subset 量化が要るため
---   このスタイルでは一段難易度が上がる。一般形も overview.md / pwl-hall.md
---   の中心例であり、⤳ / matching_of による定式化と一般の存在証明を実装する。
---   subset 量化を matcher 側 (powerset matcher 等) で吸収できれば、
---   pattern-match-oriented で 1 行で書ける見込みがあるが本ファイルでは扱わない。
+--   overview.md / pwl-hall.md の中心例である。
+--   Hall 条件は近傍を含む部分集合の組についての否定パターンで表し、
+--   ⤳ / matching_of による定式化、一般の存在証明、matcher の正しさを実装・証明する。

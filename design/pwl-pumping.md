@@ -1,5 +1,9 @@
 # Pumping Lemma：パターンマッチ指向スタイルでの定式化
 
+以下は現在の設計を示す証明スケッチである。提案言語の実装と証明の検査に
+必要な作業は [review.md](review.md) に記す。量的比較の行数はスケッチの概算であり、
+完成した同じ定理の検証済みコードで測定する。
+
 ## 定理
 
 正則言語 L を受理する DFA M = (Q, Σ, δ, q₀, F) に対し、|w| ≥ |Q| を満たす任意の w ∈ L は w = xyz と分解でき、以下を満たす：
@@ -245,7 +249,12 @@ Lean 4 版では (i, j) を `pigeonhole_list` の出力として取り出し、`
 
 核定理 `run_repeats_state` は `apply pigeonhole_list` の1行で閉じる。`pigeonhole_list` の主張パターンと定理の主張パターンが同一の形をしているため、pwl-ramsey の `exact ⟨v, x, c, y⟩` のような明示的構成は不要で、apply が直接定理を閉じる。これは「主張が鳩の巣の構造そのもの」という組合せ的核の単純さの反映であり、pattern 言語の表現力の証左でもある。
 
-一方、∀ k の pumping 性は `matches` 命題の外にあるため、系 `pumping_lemma` では `exact` に `dfa_loop_iteration` の適用を明示的に渡す。**pattern に吸収される部分（分解の存在・長さ制約・非空性）と吸収されない部分（帰納による受理保存）の境界が、核定理と系の境界に正確に一致する**。この切り分けの明示性自体が pattern style の収穫である。
+∀ k の pumping 性は、走行列の重複を述べる `matches` 命題から取り出した
+分解と状態遷移の証拠を、`dfa_loop_iteration` に渡して証明する。
+この補題の帰納法の途中でも、必要な列や状態の分解にパターンを使える。
+ここでの分業は、分解の存在と受理保存という二つの推論を表している。
+等式や帰納法の各段階への適用は、[固定点のない対合](pwl-involution.md) と
+[証明の途中の例](pwl-proof-steps.md) にも記す。
 
 ---
 
@@ -284,11 +293,11 @@ Lean 4 版は四つの連言を `refine` で開いて並列に証明する。各
 
 ---
 
-## D. pwl-* シリーズ内での新規性
+## D. 派生値への適用と順序の証拠
 
 ### target が「派生値」であること
 
-pwl-pumping は pwl-* シリーズで初めて、`matches` の target が **定理パラメータの派生値** となる例。
+pumping lemma では、`matches` の target に **定理パラメータから計算した値**を使う。
 
 | 定理 | target | 由来 |
 |---|---|---|
@@ -297,13 +306,14 @@ pwl-pumping は pwl-* シリーズで初めて、`matches` の target が **定�
 | pwl-hall | `G` | 定理パラメータそのもの |
 | **pwl-pumping** | **`(M.run w).take (\|Q\|+1)`** | **パラメータ M, w から計算される値** |
 
-これは pwl-* の意味論の拡張：`matches` の左辺に派生値を許す。pattern 言語の表現力を「直接与えられた構造」から「構造から計算される値」に広げる。
+`matches` の左辺には、直接与えられた構造も、そこから計算される値も書ける。
+証明の途中で作る値にも同じ分解方法を適用する。
 
 派生値に対しても、**「target の型と matcher の対象型が整合すること」** を要求する。`(M.run w).take (|Q|+1)` は `List Q` 型なので `list Q` matcher の対象型と一致する。これに加えて、走行列の分解から入力語の分解や状態遷移の関係を導く補題が必要であり、型の一致だけでこれらの関係の健全性が証明されるわけではない。この導出の詳細は別途整理する。
 
 この拡張により、計算過程・アルゴリズムの中間値・derived data structure に対しても pattern 言語が適用可能になる。Bézout（ユークリッド算法の trace）、CRT（中国剰余の reconstruction trace）、Lagrange（剰余類分解）など、計算的構造を持つ多くの定理がこの拡張の恩恵を受ける。
 
-### list matcher の導入
+### list matcher と順序
 
 pwl-ramsey の multiset matcher は順序情報を持たないため、Pumping の `i < j` 制約や x/y/z の前後関係を表現できない。Pumping の鳩の巣は **順序付きの鳩の巣** であり、list matcher が本質的に必要。
 
@@ -350,7 +360,7 @@ Pumping と Ramsey は **構造的に同型の鳩の巣論法** を使うが、�
 
 ## まとめ
 
-- pumping lemma の組合せ的核は「DFA 走行内の鳩の巣」として pattern 一つで表現できる。∀ k の pumping 性は pattern には吸収されず、系として loop 反復補題で導く——pattern に吸収される部分とされない部分の境界を構文が明示する
+- pumping lemma の組合せ的核は「DFA 走行内の鳩の巣」として pattern 一つで表現できる。分解と状態遷移の証拠を loop 反復補題へ渡し、任意の k についての受理保存まで証明する。パターンは、その帰納法の途中にも利用できる
 - multiset ではなく list matcher を使うことで、順序情報・前後関係・分解構造が syntactic に保たれる
 - target を派生値 `(M.run w).take (|Q|+1)` に取ることで、計算的構造を持つ定理に pattern 言語が拡張される
 - 核定理は2行で閉じ、pumping lemma 本体は系として match 1 腕 + loop 反復補題で閉じる

@@ -1,7 +1,8 @@
 -- prelude.pmop
 -- pattern-match-oriented proof 言語の共通前提部。
--- 後続の pigeonhole / ramsey / schur が依存する型・matcher・identity をここに集約する。
--- 構文方針: pwl-ramsey.md 準拠 (Lean 4 風)。
+-- 後続の例が依存する型・matcher（分解方法とパターンの解釈）・命題等式を集約する。
+-- 現在の設計を示す未実装の構文であり、処理系ではまだ検査できない。
+-- Type のレベル、matcher の対象型・分解後の型、証拠の規則は design/review.md §3 で扱う。
 
 -- ---------------------------------------------------------------
 -- 1. ベース帰納型
@@ -25,10 +26,10 @@ def opposite : Color → Color
   | blue ⇒ red
 
 -- ---------------------------------------------------------------
--- 2. Identity type (MLTT, primitive)
+-- 2. 命題等式 (identity type) とその除去規則
 -- ---------------------------------------------------------------
 -- overview.md §「ベース」に従い、命題等式 Id を primitive として提供する。
--- J (path induction) は型検査器組み込みで定義する。
+-- J は等式の証拠についての帰納法を与える除去規則として組み込む設計である。
 
 primitive type Id  : (A : Type) → A → A → Type
 primitive cons refl : {A : Type} (a : A) → Id A a a
@@ -49,10 +50,10 @@ def trans {A : Type} {x y z : A} : Id A x y → Id A y z → Id A x z
 -- ---------------------------------------------------------------
 -- 3. Decidable equality (#-pattern の実行条件)
 -- ---------------------------------------------------------------
--- overview.md §「技術的制約」より、非線形パターン #c の match 実行は decidable
--- equality を持つ型でのみ使える。`decidable_eq T` という宣言が
--- 立っている型に限り value pattern を実行できる。主張側の matches では
--- 命題等式 Id として解釈するため、この実行条件は要求しない。
+-- overview.md §「健全性と実行」に従い、探索して #c を判定する場合は
+-- 等式を決定できることを要求する。`decidable_eq T` はその判定方法を与える宣言。
+-- matches を命題等式 Id で解釈し、その証拠から値を取り出す場合には要求しない。
+-- decide で存在・不成立を証明するには、候補の列挙と判定の停止・完全性も必要。
 
 decidable_eq Nat
 decidable_eq Bool
@@ -96,8 +97,9 @@ def addBoundedPosFin : {n : Nat} → PosFin n → PosFin n → Option (PosFin n)
 -- ---------------------------------------------------------------
 -- 5. Sym2 (順序なしペア、primitive matcher)
 -- ---------------------------------------------------------------
--- 形式的には A × A / (x,y) ~ (y,x) の商型。overview.md §「新規機能」より
--- 商型として導入せず matcher として primitive 化する。
+-- 数学的には (x,y) と (y,x) を同一視する順序なしペア。
+-- 核での表現と導入・除去規則は確定する必要がある。
+-- 以下の primitive 宣言は実装予定の場所を示し、分解の正しさの証明も必要とする。
 --
 -- 構成子 mk : A → A → Sym2 A は組み込み。
 -- 型は自己ループ mk x x も含む。ペアパターンの解釈を与える matcher 側で
@@ -117,15 +119,17 @@ primitive matcher Sym2_matcher : (A : Type) → Sym2 A → Type
 -- ---------------------------------------------------------------
 -- 6. multiset matcher
 -- ---------------------------------------------------------------
--- overview.md §「新規機能 2」より multiset は primitive matcher。
+-- overview.md §「数学的な対象に応じたマッチャー」に従う標準の分解機構。
 -- 対象は List A だけでなく、有限関数 A → B も
 -- 「⟦(a, f a) | a : A⟧ の multiset」とみなしてマッチできる
 -- (これが pwl-ramsey.md の `as multiset (Sym2 (Fin 6) → Color)` の意味)。
+-- 要素を取り出した残りは元の全関数ではない。対象型と残りの型、および
+-- 子パターンへの受け渡しは design/review.md §3.2 で確定する。
 --
 -- 受け付けるパターン形:
 --   _                       …… any
 --   $x                      …… パターン変数、target 全体
---   #e                      …… value pattern (decidable_eq 要)
+--   #e                      …… value pattern (探索による判定では decidable_eq 要)
 --   p :: q                  …… 1 要素 p を取り出し、残り multiset を q にマッチ
 --   p → q                   …… target が関数 multiset のとき、
 --                                入力 multiset 要素 (a, f a) を input pat p、
@@ -149,13 +153,13 @@ primitive matcher multiset
 -- ---------------------------------------------------------------
 -- 6.4. set matcher
 -- ---------------------------------------------------------------
--- overview.md §「新規機能 2」/ pwl-schur.md で導入。multiset との違いは
--- 「`::` で要素を取り出しても target が減らない」こと (集合は各要素を
--- 無限個含むとみなす。Egison の set matcher と同じ)。
+-- overview.md §「数学的な対象に応じたマッチャー」/ pwl-schur.md の集合の分解。
+-- multiset との違いは「`::` で要素を選んでも target が減らない」こと。
+-- 選択後も同じ集合に対して次のパターンを照合する。
 -- したがって同じ要素を複数回取り出せる: ⟦a⟧ は $x :: #x :: _ にマッチ。
 --
 -- Schur (schur.pmop) のように「x = y を許す」主張はこちらを使う。
--- multiset を使うと x ≠ y が強制されて主張が変わり、Schur では偽になる
+-- Schur の彩色関数を multiset で観察すると x ≠ y が強制されて主張が変わり、偽になる
 -- (red = {1,2,4}, blue = {3,5} が反例。design/pwl-schur.md)。
 -- matcher の選択が主張の意味を決める典型例。
 --
@@ -166,9 +170,9 @@ primitive matcher set
   : {A : Type} → A → Type            -- A は List 型でも、関数型でもよい
 
 -- ---------------------------------------------------------------
--- 6.5. list (ordered-multiset) matcher
+-- 6.5. list matcher
 -- ---------------------------------------------------------------
--- overview.md §「拡張候補」の Erdős–Szekeres に必要な、
+-- pumping lemma の走行列、Erdős–Szekeres の部分列、等式変形や帰納法の途中で使う。
 -- 順序を保つ matcher。multiset との違いは「要素を取り出す位置の
 -- 前後関係が保たれる」こと:
 --
@@ -215,9 +219,9 @@ primitive matcher list
 -- ---------------------------------------------------------------
 -- 7. matches 命題 (式レベル)
 -- ---------------------------------------------------------------
--- overview.md §「新規機能 1」より、`matches P as M` は命題 (Type 0)。
--- 意味論: ∃ binding, P[binding] が e を matcher M で覆う、を Σ にエンコード。
--- 証拠の型と導入・除去の規則は今後確定する。以下は提案構文であり、
+-- `e matches P as M` は、束縛値と、その値と e の関係の証拠を持つ依存対として解釈する。
+-- 宇宙レベルは対象・束縛・関係の型に従って決める (design/review.md §3.3)。
+-- 各パターンの証拠の型と導入・除去の規則を確定する。以下は提案構文であり、
 -- 現在のパーサでは処理できない。
 --
 --   theorem f (e : T) matches PAT as M
