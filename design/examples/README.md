@@ -35,7 +35,8 @@
 [TwoCancellationsCommon.pmop](pmop/DesignExamples/TwoCancellationsCommon.pmop) を共有する。
 証拠を保持する有限列挙と、通常の列挙との等式は
 [PatternStyle/TwoCancellations.lean](lean/DesignExamples/PatternStyle/TwoCancellations.lean) で検査する。
-[短縮につながる条件と比較](../proof-brevity.md) に、補助証明を含む費用と自動化した Lean の比較対象を記す。
+[わかりやすさと記述量の比較](../proof-brevity.md) に、Ramsey を基準とする評価条件、
+補助証明を含む費用と自動化した Lean の比較対象を記す。
 
 ## 検査方法と依存関係
 

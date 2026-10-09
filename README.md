@@ -12,9 +12,10 @@ See the [design overview](design/overview.md) and the
 Examples using patterns inside equality proofs and induction are described in
 [fixed-point-free involutions](design/pwl-involution.md) and
 [patterns within proofs](design/pwl-proof-steps.md).
-[Conditions for shorter proofs](design/proof-brevity.md) examines nested selections
-that retain evidence in their results, with checked examples of inverse-pair
-deletion and induction over the number of selected pairs.
+[Clarity and proof size](design/proof-brevity.md) uses Ramsey as a reference for
+making selected structures, their relations, and subsequent reasoning visible.
+It also examines proof size, with checked examples of inverse-pair deletion and
+induction over the number of selected pairs.
 
 The Haskell implementation is a dependent-type-checking prototype using
 the syntax in `sample/*.pegi`. The examples in `sample/pmop/*.pmop` are design
