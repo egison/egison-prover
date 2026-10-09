@@ -1,0 +1,11 @@
+import DesignExamples.PatternContracts
+import DesignExamples.PatternStyle.Ramsey
+import DesignExamples.PatternStyle.Schur
+import DesignExamples.PatternStyle.Pumping
+import DesignExamples.PatternStyle.Hall
+import DesignExamples.PatternStyle.Involution
+import DesignExamples.PatternStyle.GroupWords
+import DesignExamples.PatternStyle.Permutations
+import DesignExamples.PatternStyle.WalkPaths
+import DesignExamples.PatternStyle.Pigeonhole
+import DesignExamples.PatternStyle.ErdosSzekeres

@@ -1,0 +1,79 @@
+-- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
+import DesignExamples.Common
+
+namespace DesignExamples.Schur
+
+def graph (c : D → Color) : Finset (Nat × Color) :=
+  Finset.univ.image (fun d => (d.val, c d))
+
+theorem mem_graph (c : D → Color) (d : D) : (d.val, c d) ∈ graph c :=
+  Finset.mem_image.mpr ⟨d, Finset.mem_univ d, rfl⟩
+
+def Monochromatic (c : D → Color) (x y z : D) : Prop :=
+  ∃ col, c x = col ∧ c y = col ∧ c z = col ∧ x.val + y.val = z.val
+
+theorem schur_two (c : D → Color) :
+    graph c matches $x → $col :: $y → #col :: #(x+y) → #col :: _
+      as set (Nat × Color) := by
+  match h1 : c as set (D → Color) with
+  | #D.one → $col :: _ =>
+    match h2 : c D.two as value Color with
+    | #col =>
+      exact ⟨1, col, 1⟩ by
+        simpa [D.val, h1, h2] using
+          And.intro (mem_graph c .one) (And.intro (mem_graph c .one) (mem_graph c .two))
+    | #(col.opposite) =>
+      match h4 : c D.four as value Color with
+      | #(col.opposite) =>
+        exact ⟨2, col.opposite, 2⟩ by
+          simpa [D.val, h2, h4] using
+            And.intro (mem_graph c .two) (And.intro (mem_graph c .two) (mem_graph c .four))
+      | #col =>
+        match h5 : c D.five as value Color with
+        | #col =>
+          exact ⟨1, col, 4⟩ by
+            simpa [D.val, h1, h4, h5] using
+              And.intro (mem_graph c .one) (And.intro (mem_graph c .four) (mem_graph c .five))
+        | #(col.opposite) =>
+          match h3 : c D.three as value Color with
+          | #(col.opposite) =>
+            exact ⟨2, col.opposite, 3⟩ by
+              simpa [D.val, h2, h3, h5] using
+                And.intro (mem_graph c .two) (And.intro (mem_graph c .three) (mem_graph c .five))
+          | #col =>
+            exact ⟨1, col, 3⟩ by
+              simpa [D.val, h1, h3, h4] using
+                And.intro (mem_graph c .one) (And.intro (mem_graph c .three) (mem_graph c .four))
+          exhaustive by (by simpa only [Color.opposite_opposite] using
+            color_cases (c D.three) col.opposite)
+        exhaustive by color_cases (c D.five) col
+      exhaustive by (by simpa only [Color.opposite_opposite] using
+            color_cases (c D.four) col.opposite)
+    exhaustive by color_cases (c D.two) col
+  exhaustive by at_key c D.one
+
+def counterexample (x : Fin 4) : Color := if x.val = 0 ∨ x.val = 3 then .red else .blue
+
+theorem schur_four_counterexample :
+    ¬ ∃ x y z : Fin 4, counterexample x = counterexample y ∧
+      counterexample y = counterexample z ∧ (x.val + 1) + (y.val + 1) = z.val + 1 := by
+  decide
+
+theorem pattern_iff_ordinary (c : D → Color) :
+    (graph c matches $x → $col :: $y → #col :: #(x+y) → #col :: _
+      as set (Nat × Color)) ↔ ∃ x y z, Monochromatic c x y z := by
+  constructor
+  · rintro ⟨x, col, y, hx, hy, hz⟩
+    obtain ⟨dx, _, hx⟩ := Finset.mem_image.mp hx
+    obtain ⟨dy, _, hy⟩ := Finset.mem_image.mp hy
+    obtain ⟨dz, _, hz⟩ := Finset.mem_image.mp hz
+    simp only [Prod.mk.injEq] at hx hy hz
+    exact ⟨dx, dy, dz, col, hx.2, hy.2, hz.2, by omega⟩
+  · rintro ⟨dx, dy, dz, col, hx, hy, hz, hsum⟩
+    refine ⟨dx.val, col, dy.val, ?_, ?_, ?_⟩
+    · simpa [hx] using mem_graph c dx
+    · simpa [hy] using mem_graph c dy
+    · rw [hsum]
+      simpa [hz] using mem_graph c dz
+
+end DesignExamples.Schur

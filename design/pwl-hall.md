@@ -1,183 +1,76 @@
-# Hall の結婚定理：パターンマッチ指向スタイルでの定式化
+# 一般の有限 Hall の結婚定理
 
-以下は現在の設計を示す証明スケッチである。提案言語の実装と証明の検査に
-必要な作業は [review.md](review.md) に記す。
+二部グラフは、左の頂点型 X、右の頂点型 Y、辺の関係 `E : X → Y → Prop` で表す。
+X,Yを有限とする。左側を覆うマッチングは、各 x を隣接する頂点 f(x) に対応させ、
+異なる x を異なる頂点へ写す関数 f である。
 
-## 定理
+近傍 N(S) は、S のいずれかの頂点と辺で結ばれた右側の頂点全体である。
+Hall 条件は、すべての有限部分集合 S について |S|≤|N(S)| という条件である。
+定理は、この条件と左側を覆うマッチングの存在の同値性を述べる。
+任意の大きさの有限二部グラフを扱う。
 
-二部グラフ $G = (X \cup Y, E)$ が X を覆う完全マッチングを持つ ⇔ X の任意の部分集合 S について |N(S)| ≥ |S|（**Hall 条件**）。
+## 完全なコード
 
-本ファイルでは、**Hall 条件のパターン化**、定理の主張と適用、
-および **完全マッチングの取り出し** を説明する。
-一般形の存在証明とマッチャーの正しさの証明に必要な作業は、
-[設計上の課題](review.md) §4 にまとめる。
+- [Lean 版の全文](examples/lean/DesignExamples/Hall.lean)
+- [パターンマッチ指向版の全文](examples/pmop/DesignExamples/Hall.pmop)
+- [パターンの証拠を明示した Lean 版](examples/lean/DesignExamples/PatternStyle/Hall.lean)
 
----
+全文には定義・補助補題・主定理の証明を含む。共通の型、標準ライブラリへの依存、
+記法、検査方法は [コードの一覧と仕様](examples/README.md) にまとめる。
+Lean 版と、パターンの証拠を明示した Lean 版は Lean 4.31.0 / Mathlib v4.31.0 で検査する。
+`.pmop` は完全な提案ソースであり、現在の処理系では直接検査できない。
 
-## 基本定義
+以下は主証明を抜き出したもの。使用する定義・補助補題は上記の全文にある。
 
-### Lean 4 での定義
+### Lean
 
 ```lean
-variable {X Y : Type} [Fintype X] [Fintype Y] [DecidableEq X] [DecidableEq Y]
-
-structure BipartiteGraph (X Y : Type) where
-  edge : Set (X × Y)
-
-noncomputable def neighborhood (G : BipartiteGraph X Y) (S : Finset X) : Finset Y := by
-  classical
-  exact Finset.univ.filter (fun y => ∃ x ∈ S, (x, y) ∈ G.edge)
-
-def hallCondition (G : BipartiteGraph X Y) : Prop :=
-  ∀ S : Finset X, S.card ≤ (neighborhood G S).card
-
-def perfectMatching (G : BipartiteGraph X Y) (f : X → Y) : Prop :=
-  Function.Injective f ∧ ∀ x, (x, f x) ∈ G.edge
-
-theorem hall (G : BipartiteGraph X Y) (h : hallCondition G) :
-    ∃ f : X → Y, perfectMatching G f
+theorem hall (E : X → Y → Prop) [DecidableRel E] (h : HallCondition E) :
+    ∃ f, Matching E f := by
+  obtain ⟨f, hfinj, hf⟩ :=
+    (Finset.all_card_le_biUnion_card_iff_existsInjective'
+      (fun x => Finset.univ.filter (E x))).mp h
+  exact ⟨f, hfinj, fun x => (Finset.mem_filter.mp (hf x)).2⟩
 ```
 
-`hallCondition` は `∀ S : Finset X` という二階の量化、補助述語 `neighborhood`、カーディナリティ比較 `S.card ≤ ...` を経由する。`perfectMatching` も「単射性」と「∀ x, ...」の二つの conjunct で書かれる。
+### パターンマッチ指向スタイル
 
----
-
-## A. Hall 条件のパターン化
-
-matcher `bipartite_graph` は、「**部分グラフ閉包**」を表すパターンコンストラクタ `⤳` を提供する：
-
-```
-G matches $X' ⤳ $Y'    as bipartite_graph X Y
-```
-
-意味：X' ⊆ X、Y' ⊆ Y で、X' から出るすべての辺が Y' に入る（つまり N_G(X') ⊆ Y'）。X' と Y' はそれぞれ pattern 変数として束縛される。
-
-これを使うと Hall 条件は：
-
-```
-HallCondition (G : BipartiteGraph X Y) ≡
-    ¬ ( G matches $X' ⤳ $Y'   where |X'| > |Y'|
-        as bipartite_graph X Y )
+```egison
+theorem hall (E : X → Y → Prop) [DecidableRel E]
+    (h : ¬(E matches $S ⤳ $T where T.card < S.card as bipartite_graph X Y)) :
+    E matches $f as matching_of E := by
+  have hc : HallCondition E := (hall_iff_no_bad_pair E).mpr h
+  match hf : E as matching_of E with
+  | $f => exact ⟨f⟩ by exact hf
+  exhaustive by hall_from_card E hc
 ```
 
-（`BipartiteGraph X Y` は**型**、`bipartite_graph X Y` はその型に対する **matcher**。型注釈には型を、`as` 節には matcher を書く。）
+## 条件と結論をパターンで書く
 
-この2行は、Hall 条件に違反する部分集合の組が存在しないことを表す。
-部分集合の選択と近傍の包含関係は matcher の意味論が与える。
+`$S ⤳ $T as bipartite_graph X Y` の関係は `neighbors E S ⊆ T` である。
+`where T.card < S.card` を加えると、Hall 条件に違反する部分集合の組を表す。
+このような組の不在が Hall 条件と同値であることを、`hall_iff_no_bad_pair` で証明する。
+片方向では |S|≤|N(S)|≤|T|、逆方向では T=N(S) を使う。
 
-### Matcher 内部での実装
+`E matches $f as matching_of E` は、関数 f と、
+単射性および `∀ x, E x (f x)` の証拠を持つ。
+通常のパターン変数が対象そのものを束縛する場合とは異なり、
+この専用マッチャーの `$f` はグラフから選ぶ関数を束縛する。
 
-`bipartite_graph` matcher は `⤳` パターンコンストラクタを次のように分解する：
+Lean 版では `hall` が存在方向、`matching_implies_hall` が逆方向を証明し、
+`hall_iff_matching` が両方向をまとめる。
+存在方向に利用する Mathlib の一般の有限 Hall 定理の名前と型は、コードと
+[依存関係](examples/README.md) に明示する。
+提案版の `hall_from_card` は同じ定理を適用する補助証明である。
 
-```
-matcher bipartite_graph X Y where
-  | $X' ⤳ $Y' as (subset X, subset Y) with
-    | $G ->
-        matchAll G as set (X × Y) with
-          | _ ->
-              -- X' は X の部分集合、Y' = N_G(X') の上界
-              let X' := chosen subset of X
-              let Y' := chosen subset of Y
-              guard (∀ (x, y) ∈ G. x ∈ X' → y ∈ Y')
-              return (X', Y')
-```
+## マッチャーの候補を具体的に定義する
 
-詳細は matcher の定義（別途）に譲るが、**「X' から出る辺はすべて Y' に入る」という構造的拘束を matcher 側で実装** することで、利用者側の pattern は劇的に簡潔になる。
+`badPairs` は左右の全部分集合の組から、近傍の包含と要素数の不等式を満たす組を選ぶ。
+`mem_badPairs` が列挙の結果とパターンの関係の同値性を証明する。
+`matchings` は全関数 X→Y からマッチングの条件を満たす関数を選び、
+`mem_matchings` がその所属の意味を証明する。
+`pattern_hall` は違反する組の列挙が空ならマッチングの列挙が空でないことを証明する。
 
-### 完全マッチングのパターン化
-
-`bipartite_graph` matcher から、完全マッチングを取り出す matcher を作る変換 `matching_of` を用意する：
-
-```
-G matches $f    as matching_of (bipartite_graph X Y)
-```
-
-意味：`f : X → Y` は単射で、∀ x. (x, f x) ∈ E（つまり X を覆う完全マッチング）。
-
-これにより Hall の定理の主張は：
-
-```
-theorem hall (G : BipartiteGraph X Y) (h : HallCondition G)
-    matches $f
-    as matching_of (bipartite_graph X Y)
-```
-
-Lean 版の `∃ f : X → Y, Function.Injective f ∧ ∀ x, (x, f x) ∈ G.edge` が、pattern 一個に吸収される。
-
----
-
-## B. 主張と適用の対応
-
-Hall の定理を **適用** する場面でも、同じ pattern が match の腕として現れる：
-
-```
--- 例：完全マッチング f を取り出して使う
-match G as matching_of (bipartite_graph X Y) with
-| $f => 
-    -- ここで f : X → Y は完全マッチングとして使える
-    ...
-exhaustive by hall G h_hall
-```
-
-pwl-ramsey の `pigeonhole_edges_at`、pwl-schur の `color_dichotomy` と同じ構造：
-
-- **補題側**: `matches $f as matching_of (bipartite_graph X Y)`（Hall の主張）
-- **適用側**: `match G as matching_of (bipartite_graph X Y) with | $f => ...`（同じ pattern を destructure）
-- **接続子**: `exhaustive by hall G h_hall`
-
-「主張と適用が同じパターン言語に閉じる」という研究プログラムの核心が、Hall でも具体化される。
-
----
-
-## C. Lean 4 との比較
-
-| | Lean 4 | パターンマッチ指向 |
-|---|---|---|
-| Hall 条件の定義 | `∀ S : Finset X, S.card ≤ (neighborhood G S).card` | `¬ (G matches $X' ⤳ $Y' where …)` |
-| 完全マッチングの存在 | `∃ f, Injective f ∧ ∀ x, (x, f x) ∈ E` | `G matches $f as matching_of (bipartite_graph X Y)` |
-| 構造を述べる補助述語 | `neighborhood`、`perfectMatching` | `⤳` と `matching_of` の意味論で表す |
-| 部分集合の量化 | `∀ S : Finset X` | matcher が部分集合を選択する |
-
-パターンマッチ指向版では、近傍の包含関係と完全マッチングの性質を
-matcher が与える。`⤳` と `matching_of` の型・意味論・健全性を明示し、
-利用者が導入する matcher についても同じ条件を検査できるようにする必要がある。
-
----
-
-## D. Matcher 設計の論点
-
-### `⤳` パターンの非決定性
-
-`$X' ⤳ $Y'` は X' と Y' のペアを **すべての可能な選び方** で列挙する非決定的パターン。pwl-ramsey の `multiset` matcher の `$x :: $xs` と同種の非決定性。
-
-利用例：
-```
--- Hall 条件違反の証拠を探す
-matchAll G as bipartite_graph X Y with
-  | $X' ⤳ $Y' where |X'| > |Y'| -> (X', Y')
-```
-
-複数の (X', Y') ペアが Hall 条件違反を示しうるので、結果はリスト。`matchAll` で全列挙、`match` で単一の存在判定。
-
-### 計算量
-
-- `⤳` の判定：左 X' を固定すると N_G(X') は決定論的に計算でき、Y' ⊇ N_G(X') の選び方は 2^|Y \ N(X')| 通り。X' の選び方が 2^|X| 通りで、全体としては指数的だが有限。
-- `matching_of`：完全マッチングの存在判定と1個の構成には、Hopcroft–Karp の O((|E|+|V|)√|V|) のアルゴリズムを使える（V は頂点集合。出典：[Hopcroft と Karp の論文](https://epubs.siam.org/doi/10.1137/0202019)）。すべての完全マッチングを `matchAll` で列挙するコストは、出力するマッチングの個数にも依存する。
-
-健全性の議論：`matcher bipartite_graph` の定義が正確に `⤳` パターンと `matching_of` による matcher の意味論を実現しているかを別途証明する必要がある。
-
-### Sym2 / multiset matcher との関係
-
-二部グラフは Sym2 ではなく X × Y 上の集合なので、pwl-ramsey の `Sym2 (Fin 6)` のような順序なし対 matcher は使えない。`bipartite_graph X Y` は新規 matcher として独立に設計する。ただし内部実装は `set (X × Y)` または `multiset (X × Y)` への reduction で書けるはず。
-
----
-
-## まとめ
-
-- Hall 条件は、`⤳` パターンで表す「近傍を含む部分集合の組」に対する大きさの条件として述べる。
-- 完全マッチングの存在は、`matching_of` が与える matcher とパターン変数 `$f` で述べる。
-- Hall の定理を適用するときも同じパターンを使い、`exhaustive by hall G h_hall` で f を取り出す。
-
-定理本体の証明には帰納法または増加路（マッチングに含む辺と含まない辺を交互に通り、
-辺の選び方を入れ替えてマッチングを大きくする経路）を使う。
-一般形の存在証明と matcher の健全性証明の完成は、[設計上の課題](review.md) §4 に記す。
+辺の判定を含む有限列挙には `DecidableRel E` を要求する。
+数学的に任意の辺の関係を扱う場合は、古典論理による判定可能性を局所的に使える。
+列挙方法の正しさと、効率のよいマッチング算法を実装することは別の作業である。

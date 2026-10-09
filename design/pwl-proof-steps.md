@@ -5,11 +5,19 @@
 ここでは、等式変形や帰納法の各段階での使い方を考える。
 [固定点のない対合の例](pwl-involution.md) では、要素数の偶数性と有限和の等式を扱う。
 
-以下のパターンと宣言は設計スケッチである。マッチャーは対象の分解方法を与え、
-`$x` は値を束縛し、`#e` は式 e と等しい値を要求する。
+型・補助補題・主定理を含む完全なコードを次に置く。
+
+| 例 | Lean | パターンマッチ指向版 | 証拠を明示した Lean 版 |
+|---|---|---|---|
+| 群の語 | [全文](examples/lean/DesignExamples/GroupWords.lean) | [全文](examples/pmop/DesignExamples/GroupWords.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/GroupWords.lean) |
+| 有限置換 | [全文](examples/lean/DesignExamples/Permutations.lean) | [全文](examples/pmop/DesignExamples/Permutations.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/Permutations.lean) |
+| 歩道と道 | [全文](examples/lean/DesignExamples/WalkPaths.lean) | [全文](examples/pmop/DesignExamples/WalkPaths.pmop) | [全文](examples/lean/DesignExamples/PatternStyle/WalkPaths.lean) |
+
+`$x` は値を束縛し、`#e` は式 e との等式を要求する。
 `::` は要素と残りへの分解、`++` は列を前後に分割するパターンである。
-どの例でも、マッチ成立から元の対象の分解と等式などの証拠を受け取り、
-その証拠と数学的な補題を使って次の推論を行う。
+`match h : …` は分解の証拠を h として受け取る。
+記法・依存関係・検査方法は [コードの一覧と仕様](examples/README.md) に記す。
+`.pmop` の直接の検査は処理系への実装が必要である。
 
 ## 1. 群の語から隣接する逆元を消去する
 
@@ -53,19 +61,20 @@ w=\mathrm{pre}\mathbin{++}[g,\mathrm{inv}(g)]\mathbin{++}\mathrm{post}
 
 ## 2. 有限置換を互換の積へ分解する帰納法
 
-型 A の有限部分集合 S 上の **置換** π は S から S への全単射である。
+**置換** π は全単射である。コードでは π : A→A を、有限部分集合 S の外を固定する全単射として表す。
+S 上の置換を、S の外で恒等写像として拡張した表現である。
 **互換** τ(a,c) は異なる2要素 a,c を入れ替え、他の要素を固定する置換を表す。
 定理は「任意の有限置換は有限個の互換の合成で表せる」である。
 
 $|S|$ について帰納法を使う。S が空なら恒等置換であり、互換の個数は0でよい。
 S が空でなければ a ∈ S を一つ固定する。
-π のグラフを、各入力をちょうど1回含む入出力ペアの多重集合 `graph π` として観察する。
+π のグラフを、各入力をちょうど1回含む入出力ペアの多重集合 `graph S π` として観察する。
 ここでは残りの対象の型を `Multiset (A × A)` と明示する。
 
 ```text
-match graph π as multiset (A × A) with
-| (#a, #a) :: $R => ...
-| (#a, ($b & !#a)) :: ($c, #a) :: $R => ...
+graph S π matches (#a, #a) :: $R
+  | (#a, ($b & !#a)) :: ($c, #a) :: $R
+  as multiset (A × A)
 ```
 
 `&` は同じ値について両方の条件を要求する andパターン、
@@ -83,11 +92,12 @@ R に含まれるペアと (c,b) を合わせ、T = S \ {a} 上の置換 π' を
 したがって入力と出力はともに T の各要素をちょうど1回含む。
 この証明で、残り R の入力・出力に重複がないことも使う。
 
-π' を a を固定する S 上の置換へ拡張したものを lift(π') とする。
+コードでは A 上の置換 π' = π ∘ τ(a,c) を直接構成する。
+π' は a と S の外を固定し、T 上では上述のつなぎ直した置換として働く。
 合成 (f ∘ g)(z) = f(g(z)) の向きを用いると、
 
 \[
-\pi=\mathrm{lift}(\pi')\circ\tau(a,c)
+\pi=\pi'\circ\tau(a,c)
 \]
 
 が成立する。a では a → c → b、c では c → a → a、他の要素では π と同じ写像になる。
@@ -149,6 +159,65 @@ w' = [s,a,t] を作る。s = t の場合も、閉じた部分を順に除いて 
 この例は [pumping lemma](pwl-pumping.md) と同じ、リスト中の同じ値の2回の出現を扱う
 パターンを再利用できる。
 
+## 主証明のコード
+
+群の語の完全な簡約の存在証明は次のように書く。
+使用する `Reduced` と `cancel_pair` の定義・証明は上記の全文に含める。
+
+```lean
+theorem exists_reduced (w : List G) :
+    ∃ r, Reduced r ∧ r.prod = w.prod ∧ r.length ≤ w.length := by
+  classical
+  suffices h : ∀ n, ∀ w : List G, w.length = n →
+      ∃ r, Reduced r ∧ r.prod = w.prod ∧ r.length ≤ w.length from h w.length w rfl
+  intro n
+  induction n using Nat.strong_induction_on with
+  | h n ih =>
+    intro w hn
+    by_cases hr : Reduced w
+    · exact ⟨w, hr, rfl, le_rfl⟩
+    obtain ⟨pre, g, post, rfl⟩ := not_not.mp hr
+    have hlt : (pre ++ post).length < n := by simp_all; omega
+    obtain ⟨r, hred, hprod, hlen⟩ := ih _ hlt (pre ++ post) rfl
+    refine ⟨r, hred, hprod.trans (cancel_pair pre g post).symm, ?_⟩
+    simp only [List.length_append, List.length_cons] at *
+    omega
+```
+
+```egison
+theorem exists_reduced (w : List G) :
+    ∃ r, Reduced r ∧ r.prod = w.prod ∧ r.length ≤ w.length := by
+  classical
+  suffices h : ∀ n, ∀ w : List G, w.length = n →
+      ∃ r, Reduced r ∧ r.prod = w.prod ∧ r.length ≤ w.length from h w.length w rfl
+  intro n
+  induction n using Nat.strong_induction_on with
+  | h n ih =>
+    intro w hn
+    match heq : w as list G with
+    | !($pre ++ $g :: #(g⁻¹) :: $post) =>
+      exact ⟨w, heq, rfl, le_rfl⟩
+    | $pre ++ $g :: #(g⁻¹) :: $post =>
+      subst w
+      have hlt : (pre ++ post).length < n := by simp_all; omega
+      obtain ⟨r, hred, hprod, hlen⟩ := ih _ hlt (pre ++ post) rfl
+      refine ⟨r, hred, hprod.trans (cancel_pair pre g post).symm, ?_⟩
+      simp only [List.length_append, List.length_cons] at *
+      omega
+    exhaustive by Classical.em (∃ pre g post, w = pre ++ g :: g⁻¹ :: post)
+```
+
+置換では、`π : Equiv.Perm A` が有限部分集合 S の外を固定すると仮定する。
+この表現により、小さい集合の置換を拡張する操作を `π * swap a c` として実装できる。
+`graph_cases` が2腕を証明し、`factor_of_support` が集合を1要素ずつ小さくする帰納法を完結させる。
+`finite_permutation_factors` は S を型全体の有限集合に取ることで、任意の有限置換についての定理を得る。
+
+歩道では、辺の関係を任意の `E : A → A → Prop` とし、
+隣接する頂点間の辺の証拠を `List.IsChain E` で保持する。
+`splice_chain` と `splice_walk` が分解後の辺と始点・終点を保つことを証明し、
+`walk_to_path` が列の長さについての帰納法を完結させる。
+辺の推移性、頂点型の有限性、始点と終点の相異性は要求しない。
+
 ## 4. 適用範囲と実装への示唆
 
 | 例 | 主張の形 | 証明の途中で取り出すもの | 次に必要な推論 |
@@ -179,6 +248,7 @@ w' = [s,a,t] を作る。s = t の場合も、閉じた部分を順に除いて 
 | 群の語 | 3要素上の置換の群における、長さ0〜5の全9,331語 | 5,910箇所の逆元消去で、積の保存と長さの減少 |
 | 歩道 | 3頂点上の全512有向グラフ（自己ループを含む）と、頂点列の長さ1〜6の54,624歩道 | 235,776通りの重複頂点の除去で、始点・終点・辺の保存と長さの減少 |
 
-これらは有限ケースの変換の確認である。提案言語による型検査や、
-一般の定理の機械的な検証は未実施である。
-一般の証明は、[設計上の課題](review.md) に記す証拠と帰納法の規則を実装して検査する。
+これらの有限ケースの確認に加え、上記の Lean 版と、パターンの証拠を明示した Lean 版で
+一般の定理を機械的に検査する。対合は任意の有限部分集合、群は非可換な群も含み、
+置換は任意の有限置換、歩道は任意の有向・無向の辺の関係を扱う。
+提案言語の直接の型検査には、[設計上の課題](review.md) に記す変換と核の実装が必要である。

@@ -4,13 +4,17 @@
 パターンで取り出して証明する。定理の結論は数値的な性質であり、
 証明の途中の分解にパターンを使う例である。
 
-本ファイルの宣言と証明記述は提案言語の設計スケッチである。
-`Finset A` は A の有限部分集合、`Multiset A` は多重集合を表す。
-マッチャーはパターンの解釈と対象の分解方法を与えるもの、
-`$x` は値を束縛するパターン変数、`#e` は式 e と等しい値を要求する
-バリューパターンである。`[]` は空、`::` は多重集合から1出現を取り出す。
-これらの記法と証拠の受け渡しを処理系に実装する作業は、
-[設計上の課題](review.md) §3・§4 に記す。
+型・補助補題・証明を含む完全なコードは、
+[Lean 版](examples/lean/DesignExamples/Involution.lean)、
+[パターンマッチ指向版](examples/pmop/DesignExamples/Involution.pmop)、
+[パターンの証拠を明示した Lean 版](examples/lean/DesignExamples/PatternStyle/Involution.lean) にある。
+偶数性、重みの和、部分集合の符号反転をすべて含む。
+Lean の検査方法と提案版の記法は [コードの一覧と仕様](examples/README.md) に記す。
+
+`$x` は値を束縛し、`#e` は式 e との等式を要求する。
+対象 `S.val` は S の各要素を一度ずつ含む多重集合であり、
+`multiset A` の `::` は1出現と残りへ分解する。
+`.pmop` の構文を処理系で検査する作業は [review.md](review.md) に記す。
 
 ## 1. 定理と仮定
 
@@ -37,36 +41,52 @@ A 全体の有限性は要求せず、S が有限であればよい。
 すなわち、ある自然数 k について |S| = 2k である。
 $|S|$ は S の要素数を表す。
 
-```text
-theorem involution_card_even
-    (S : Finset A) (σ : A → A)
-    (h_closed : ∀ x ∈ S, σ x ∈ S)
-    (h_invol : ∀ x ∈ S, σ (σ x) = x)
-    (h_no_fixed : ∀ x ∈ S, σ x ≠ x) :
-    2 ∣ card S
+コードでは三つの仮定を `Conditions` にまとめる。
+
+```lean
+def Conditions (S : Finset A) (σ : A → A) : Prop :=
+  (∀ x ∈ S, σ x ∈ S) ∧ (∀ x ∈ S, σ (σ x) = x) ∧ (∀ x ∈ S, σ x ≠ x)
 ```
 
 ## 2. 空集合または1組を取り出すパターン
 
-`elements S : Multiset A` を、S の各要素をちょうど1回含む多重集合とする。
+`elements S = S.val : Multiset A` を、S の各要素をちょうど1回含む多重集合とする。
 順序は持たず、重複も持たない。この対象を `multiset A` で照合する。
 
-```text
-match elements S as multiset A with
-| [] => ...
-| $x :: #(σ x) :: $R => ...
-exhaustive by pair_or_empty S σ h_closed h_no_fixed
+空集合か、xとσ(x)の対を取り出せることを `pair_or_empty` で証明する。
+補題の本体は提案版に含め、関係と網羅性の Lean での証明は
+[PatternContracts.lean](examples/lean/DesignExamples/PatternContracts.lean) に含める。
+
+```egison
+theorem involution_card_even (S : Finset A) (σ : A → A) (h : Conditions S σ) :
+    2 ∣ S.card := by
+  induction S using Finset.strongInduction with
+  | H S ih =>
+    match heq : S.val as multiset A with
+    | [] =>
+      have hs : S = ∅ := Finset.val_injective heq
+      subst S
+      simp
+    | $x :: #(σ x) :: $R =>
+      obtain ⟨hx, _, _, hR⟩ := pair_evidence S σ x R heq
+      obtain ⟨hlt, hrest, hcard⟩ := pair_remainder S σ x hx h
+      obtain ⟨k, hk⟩ := ih (remainder S σ x) hlt hrest
+      exact ⟨k + 1, by omega⟩
+    exhaustive by pair_or_empty S σ h.1 h.2.2
 ```
 
-`pair_or_empty` の主張は次の形である。
+同じ主定理の通常の Lean 記述は次のとおりである。
 
-```text
-lemma pair_or_empty
-    (S : Finset A) (σ : A → A)
-    (h_closed : ∀ x ∈ S, σ x ∈ S)
-    (h_no_fixed : ∀ x ∈ S, σ x ≠ x) :
-    elements S matches [] | $x :: #(σ x) :: $R
-        as multiset A
+```lean
+theorem involution_card_even (S : Finset A) (σ : A → A) (h : Conditions S σ) :
+    2 ∣ S.card := by
+  induction S using Finset.strongInduction with
+  | H S ih =>
+    obtain rfl | ⟨x, hx⟩ := S.eq_empty_or_nonempty
+    · simp
+    obtain ⟨hlt, hrest, hcard⟩ := pair_remainder S σ x hx h
+    obtain ⟨k, hk⟩ := ih (remainder S σ x) hlt hrest
+    exact ⟨k + 1, by omega⟩
 ```
 
 この網羅性補題の証明は、S が空かどうかの場合分けで与えられる。
@@ -93,7 +113,8 @@ h_closed から σ(x) ∈ S、h_no_fixed から σ(x) ≠ x が得られるた�
 - R の要素に重複がないこと。
 - x と σ(x) が R に含まれないこと。
 
-T = support(R) と置く。**台集合（support）** は多重集合に含まれる値の集合である。
+コードでは T = (S.erase x).erase (σ x) と置き、`pair_evidence` が `R = T.val` を証明する。
+したがって T は R に含まれる値の **台集合（support）** である。
 R に重複がないので、`elements T = R` が成立し、
 
 \[
@@ -183,6 +204,8 @@ w : A → B が、すべての x ∈ S について w(σ(x)) = −w(x) を満た
 - 要素数を用いた帰納法の型と、再帰的な証明で要素数が減ることの検査。
 - `pair_or_empty` の主張と2腕のパターンを結び付ける `exhaustive by` の規則。
 - 等式の証拠による値の置換と、有限和の分解補題の適用。
+
+数学的な補題は完全なコードで検査し、上記の項目を構文解析・証明項への変換に反映する。
 
 他の等式・帰納法での利用例は [証明の途中で使うパターン](pwl-proof-steps.md) にまとめる。
 有限ケースでの残りの閉性や符号反転の確認は、同ファイルの §5 に記す。

@@ -1,384 +1,107 @@
-# Ramsey R(3,3) = 6 の証明：パターンマッチ指向スタイルの比較
+# Ramsey R(3,3)=6
 
-以下は現在の設計を示す証明スケッチである。提案言語の実装と証明の検査に
-必要な作業は [review.md](review.md) に記す。量的比較の行数はスケッチの概算であり、
-完成した同じ定理の検証済みコードで測定する。
+6頂点の完全グラフの辺を赤・青の2色で塗ると、必ず単色の三角形が存在する。
+5頂点では単色三角形を持たない彩色があるため、必要な頂点数は6である。
+`Color` は `inductive Color where | red | blue` により定義し、
+`DecidableEq`（等式を判定する方法）と `Fintype`（全要素の有限列挙）を導出する。
+`Sym2 A` は順序を区別しない2要素の組であり、型自体は同じ要素の組も含む。
+辺を選ぶペアパターンでは両端の相異性を要求する。
 
-## 定理
+固定した頂点 v からの5辺には同色の3辺がある。
+その先の3頂点を x,y,z、色を c とすると、内部辺に c の辺があれば
+v とその両端が単色三角形を作る。内部辺に c がなければ、x,y,z 自身が反対色の三角形を作る。
 
-K₆（6頂点の完全グラフ）の辺を赤・青の2色で塗ると、必ず単色三角形が存在する。
+## 完全なコード
 
----
+- [Lean 版の全文](examples/lean/DesignExamples/Ramsey.lean)
+- [パターンマッチ指向版の全文](examples/pmop/DesignExamples/Ramsey.pmop)
+- [パターンの証拠を明示した Lean 版](examples/lean/DesignExamples/PatternStyle/Ramsey.lean)
 
-## 基本定義
+全文には定義・補助補題・主定理の証明を含む。共通の型、標準ライブラリへの依存、
+記法、検査方法は [コードの一覧と仕様](examples/README.md) にまとめる。
+Lean 版と、パターンの証拠を明示した Lean 版は Lean 4.31.0 / Mathlib v4.31.0 で検査する。
+`.pmop` は完全な提案ソースであり、現在の処理系では直接検査できない。
 
-### Lean 4 での定義
+以下は主証明を抜き出したもの。使用する定義・補助補題は上記の全文にある。
 
-```lean
-inductive Color where | red | blue deriving DecidableEq, Fintype
-
--- 注意: Mathlib の Sym2 は対角元 ⟦(x,x)⟧ を含むため、相異性を明示しないと
--- ⟨x, x, x, edge ⟦(x,x)⟧, rfl, rfl, rfl⟩ で定理が自明に成立してしまう。
-def monochromatic (edge : Sym2 (Fin 6) → Color) (x y z : Fin 6) : Prop :=
-  x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
-  ∃ c, edge ⟦(x,y)⟧ = c ∧ edge ⟦(y,z)⟧ = c ∧ edge ⟦(x,z)⟧ = c
-
-theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
-    ∃ (x y z : Fin 6), monochromatic edge x y z
-```
-
-### パターンマッチ指向での定義
-
-```egison
-inductive Color | red | blue
-
-theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
-    matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
-    as multiset (Sym2 (Fin 6) → Color)
-```
-
-`matches` は「任意の `edge` に対してこのパターンが必ずマッチする」という主張であり、
-定理の証明はこのパターンの網羅性を示すことに対応する。
-`as multiset (Sym2 (Fin 6) → Color)` により、関数 `edge` を入出力ペアの multiset として扱う。
-`Sym2 (Fin 6)` は順序なしペアなので、`($x, $y)` は順序を問わずマッチする。
-
-この記法により以下が吸収される：
-- **`monochromatic` の定義**: パターン自体が「単色三角形」を表現
-- **`∃ (x y z : Fin 6)`**: パターン変数 `$x, $y, $z` に吸収
-- **`∃ c`**: パターン変数 `$c` と非線形パターン `#c` に吸収
-
-さらに、各パターン変数が満たすべき関係もパターンの構造から自動的に導かれる。
-具体的には、`($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _` というパターンから：
-- **相異性**: Sym2 matcher のペアパターン `(p₁, p₂)` は対角元（自己ループ `⟦(v, v)⟧`）にマッチしない仕様とする（prelude.pmop の Sym2 matcher 規則）。よって 1 辺目から `x ≠ y`、2 辺目から `y ≠ z`、3 辺目から `z ≠ x` が従い、`x`, `y`, `z` は互いに異なる。
-- **三角形の構成**: 3つの辺 `⟦(x,y)⟧`, `⟦(y,z)⟧`, `⟦(z,x)⟧` が三角形を形成すること。
-- **単色性**: 非線形パターン変数 `#c` により、3辺すべてが同じ色 `c` であること。
-
-Lean 4 版では `monochromatic` の定義内でこれらの関係を明示的に記述する必要があるが、パターンマッチ指向版ではパターンの構文そのものがこれらの制約を暗黙に表現している。
-
----
-
-## A. Lean 4 / Mathlib スタイル
-
-### 補助補題
+### Lean
 
 ```lean
-def opposite : Color → Color
-  | .red => .blue
-  | .blue => .red
-
-def same_color_neighbors (edge : Sym2 (Fin 6) → Color) (v : Fin 6) (c : Color) :
-    Finset (Fin 6) :=
-  Finset.univ.filter (fun w => w ≠ v ∧ edge ⟦(v, w)⟧ = c)
-
--- 鳩の巣原理: v からの 5 辺を 2 色で塗ると、同色 3 辺以上が存在する
-lemma pigeonhole_edges (edge : Sym2 (Fin 6) → Color) (v : Fin 6) :
-    ∃ c, (same_color_neighbors edge v c).card ≥ 3 := by
-  by_contra h
-  push_neg at h
-  have hr := h .red
-  have hb := h .blue
-  have h_total : (same_color_neighbors edge v .red).card
-               + (same_color_neighbors edge v .blue).card = 5 := by
-    ...
-  omega
-```
-
-### 証明
-
-```lean
-theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color) :
-    ∃ (x y z : Fin 6), monochromatic edge x y z := by
+theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
+    ∃ x y z, Monochromatic edge x y z := by
   let v : Fin 6 := 0
-  -- 鳩の巣原理
   obtain ⟨c, hc⟩ := pigeonhole_edges edge v
-  -- S から 3 頂点を取り出す
-  let S := same_color_neighbors edge v c
-  obtain ⟨x, hx, y, hy, z, hz, hxy, hxz, hyz⟩ :=
-    Finset.exists_three_le_card S hc
-  -- v-x, v-y, v-z は全て色 c。x, y, z は v と異なる（filter の条件より）
-  have hvx : x ≠ v := (Finset.mem_filter.mp hx).2.1
-  have hvy : y ≠ v := (Finset.mem_filter.mp hy).2.1
-  have hvz : z ≠ v := (Finset.mem_filter.mp hz).2.1
-  have edge_vx : edge ⟦(v, x)⟧ = c := by
-    exact (Finset.mem_filter.mp hx).2.2
-  have edge_vy : edge ⟦(v, y)⟧ = c := by
-    exact (Finset.mem_filter.mp hy).2.2
-  have edge_vz : edge ⟦(v, z)⟧ = c := by
-    exact (Finset.mem_filter.mp hz).2.2
-  -- x-y, y-z, x-z の色で場合分け（3辺の色をフラットに分岐）
-  rcases Decidable.em (edge ⟦(x, y)⟧ = c) with hcxy | hcxy
-  · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, ⟨c, edge_vx, hcxy, edge_vy⟩⟩
-  rcases Decidable.em (edge ⟦(y, z)⟧ = c) with hcyz | hcyz
-  · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, ⟨c, edge_vy, hcyz, edge_vz⟩⟩
-  rcases Decidable.em (edge ⟦(x, z)⟧ = c) with hcxz | hcxz
-  · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, ⟨c, edge_vx, hcxz, edge_vz⟩⟩
-  -- 全て c でない → 反対色の三角形
-  exact ⟨x, y, z, hxy, hyz, hxz, ⟨opposite c,
-    by cases edge ⟦(x, y)⟧ <;> cases c <;> simp_all,
-    by cases edge ⟦(y, z)⟧ <;> cases c <;> simp_all,
-    by cases edge ⟦(x, z)⟧ <;> cases c <;> simp_all⟩⟩
+  obtain ⟨x, y, z, hx, hy, hz, hxy, hxz, hyz⟩ := Finset.two_lt_card_iff.mp (by omega :
+    2 < (neighbors edge v c).card)
+  have hvx := (Finset.mem_erase.mp (Finset.mem_filter.mp hx).1).1
+  have hvy := (Finset.mem_erase.mp (Finset.mem_filter.mp hy).1).1
+  have hvz := (Finset.mem_erase.mp (Finset.mem_filter.mp hz).1).1
+  have evx := (Finset.mem_filter.mp hx).2
+  have evy := (Finset.mem_filter.mp hy).2
+  have evz := (Finset.mem_filter.mp hz).2
+  by_cases hcx : edge s(x, y) = c
+  · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, c, evx, hcx, evy⟩
+  by_cases hcy : edge s(y, z) = c
+  · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, c, evy, hcy, evz⟩
+  by_cases hcz : edge s(x, z) = c
+  · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, c, evx, hcz, evz⟩
+  exact ⟨x, y, z, hxy, hyz, hxz, c.opposite,
+    Color.eq_opposite_of_ne hcx, Color.eq_opposite_of_ne hcy, Color.eq_opposite_of_ne hcz⟩
 ```
 
----
-
-## B. パターンマッチ指向スタイル
-
-### 証明の方針
-
-完全グラフの辺色関数 `edge : Sym2 (Fin 6) → Color` を
-`as multiset (Sym2 (Fin 6) → Color)` として観察する。
-パターン `(#v, $x)` は、固定した頂点 `v` に接続する辺を `edge` から取り出す。
-
-外側のマッチでは `v` に接続する同色3辺を取り出す。
-内側のマッチでは、その3辺の終点 `x,y,z` の間の辺について、
-「どれか1辺が色 `c`」または「3辺すべてが反対色」の2ケースを扱う。
-
-### 補助補題
+### パターンマッチ指向スタイル
 
 ```egison
--- 鳩の巣原理: 固定した v からの 5 辺を 2 色で塗ると、同色 3 辺以上が存在する。
--- v は補題の引数として固定し、edge 全体を multiset として直接マッチする。
-lemma pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6)
-    matches (#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _
-    as multiset (Sym2 (Fin 6) → Color) := by
-  -- v の次数は 5（K₆ で自己ループなし）。
-  -- 5 辺を 2 色に分けるので、鳩の巣原理から ⌈5/2⌉ = 3。
-  -- (#v, $x) というパターンで、edge から v に接続する辺を取り出す。
-  match edge as multiset (Sym2 (Fin 6) → Color) with
-  | (#v, $x) → $c :: $edge' =>
-    match edge' as multiset (Sym2 (Fin 6) → Color) with
-    | (#v, $y) → #c :: $edge'' =>
-      match edge'' as multiset (Sym2 (Fin 6) → Color) with
-      | (#v, $z) → #c :: _ =>
-          exact ⟨x, c, y, z⟩
-      | (#v, $x') → (!#c & $c') ::
-        (#v, $y') → #c' ::
-        (#v, $z') → #c' :: _ =>
-          exact ⟨x', c', y', z'⟩
-    | (#v, $x') → (!#c & $c') ::
-      (#v, $y') → #c' ::
-      (#v, $z') → #c' :: _ =>
-        exact ⟨x', c', y', z'⟩
-
--- 三角形内部の 3 辺に関する 2 色の網羅性。
--- edge を multiset として観察し、x,y,z の内部辺を取り出す。
---
--- 1. {x,y,z} の内部辺のどれか1本が色 c である。
--- 2. そうでなければ、内部3辺すべてが同じ反対色 c' である。
-lemma triangle_two_color_exhaustive
-    (edge : Sym2 (Fin 6) → Color)
-    (c : Color) (x y z : Fin 6)
-    (hxy : x ≠ y) (hyz : y ≠ z) (hzx : z ≠ x)
-    matches
-      (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _
-    | (#x, #y) → (!#c & $c') ::
-      (#y, #z) → #c' ::
-      (#z, #x) → #c' :: _
-    as multiset (Sym2 (Fin 6) → Color) := by
-  cases edge ⟦(x,y)⟧ <;>
-  cases edge ⟦(y,z)⟧ <;>
-  cases edge ⟦(z,x)⟧ <;>
-  cases c <;>
-  simp_all
-  -- 2⁴ = 16 通りの全数検査で自動証明。
-```
-
-`triangle_two_color_exhaustive` は `x,y,z` が互いに異なることを前提とする。
-例えば `x = y = z` なら、自己ループにマッチしないペアパターンのため両選択肢が失敗する。
-主定理では外側のマッチから3頂点の相異性が得られるので、この前提を満たせる。
-
-`pigeonhole_edges_at` は、頂点 `v` を補題の引数として固定する。
-`(#v, $x)` によって、指定された `v` に接続する辺を `edge` の multiset から取り出す。
-この補題は、固定した1頂点から出る5本の辺に対する鳩の巣原理を表す。
-
-`pigeonhole_edges_at` の証明中の入れ子 `match` 群の網羅性は、
-v の次数が5であること、`::` で取り出すごとに残る v の辺が1本減ること、
-色が2種類であることに依存する。この数え上げの証明と `exhaustive by` の付与は
-未完成である（[設計上の課題](review.md) §4）。
-
-`triangle_two_color_exhaustive` は、同じ `edge` を
-`as multiset (Sym2 (Fin 6) → Color)` として観察し、
-`x,y,z` の内部辺に限定するパターンで網羅性を述べる。
-
-第1節
-
-```egison
-(($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _
-```
-
-は、両端が `x,y,z` のいずれかである辺、つまり三角形内部のどれか1辺が
-色 `c` であることを表す。
-見つかった辺の両端は `$p`, `$q` として束縛されるので、主定理側では
-`exact ⟨v, p, c, q⟩` と書ける。
-
-第2節
-
-```egison
-(#x, #y) → (!#c & $c') ::
-(#y, #z) → #c' ::
-(#z, #x) → #c' :: _
-```
-
-は、内部3辺がすべて同じ反対色 `c'` であることを表す。
-3辺の存在と同色性を1つの multiset パターンで同時に要求する。
-
-### 証明
-
-```egison
-theorem ramsey_3_3_6 (edge : Sym2 (Fin 6) → Color)
-    matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
-    as multiset (Sym2 (Fin 6) → Color) := by
-
+theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
+    edge matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
+      as multiset (Sym2 (Fin 6) → Color) := by
   let v : Fin 6 := 0
-
-  -- ★ 外側のパターンマッチ:
-  -- 固定した v から出る同色 3 辺を、edge 自体から直接取り出す。
-  match edge as multiset (Sym2 (Fin 6) → Color) with
+  match hstar : edge as multiset (Sym2 (Fin 6) → Color) with
   | (#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ =>
-
-    -- ★ 内側のパターンマッチ:
-    -- x,y,z の内部辺を、edge 自体の multiset として順序なしに見る。
-    match edge as multiset (Sym2 (Fin 6) → Color) with
-
-    -- 内部辺のどれか1本が外側と同じ色 c なら、v とその両端で単色三角形。
+    rcases hstar with ⟨hvx, hvy, hvz, hxy, hxz, hyz, evx, evy, evz⟩
+    match htri : edge as multiset (Sym2 (Fin 6) → Color) with
     | (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _ =>
-        exact ⟨v, p, c, q⟩
-
-    -- 内部辺に色 c がないなら、内部3辺がすべて同じ反対色 c'。
-    | (#x, #y) → (!#c & $c') ::
-      (#y, #z) → #c' ::
-      (#z, #x) → #c' :: _ =>
-        exact ⟨x, y, c', z⟩
-
-    exhaustive by
-      triangle_two_color_exhaustive edge c x y z
-        ‹x ≠ y› ‹y ≠ z› ‹z ≠ x›
-
-  exhaustive by
-    pigeonhole_edges_at edge v
+      rcases htri with ⟨hp, hq, hpq, epq⟩
+      have hvp : v ≠ p := by rcases hp with rfl | rfl | rfl <;> assumption
+      have hvq : v ≠ q := by rcases hq with rfl | rfl | rfl <;> assumption
+      have evp : edge s(v, p) = c := by rcases hp with rfl | rfl | rfl <;> assumption
+      have evq : edge s(v, q) = c := by rcases hq with rfl | rfl | rfl <;> assumption
+      exact ⟨v, p, c, q⟩ by exact ⟨hvp, hpq, hvq, evp, epq, by simpa [Sym2.eq_swap] using evq⟩
+    | (#x, #y) → #(c.opposite) :: (#y, #z) → #(c.opposite) ::
+        (#z, #x) → #(c.opposite) :: _ =>
+      rcases htri with ⟨exy, eyz, ezx⟩
+      exact ⟨x, y, c.opposite, z⟩ by
+        exact ⟨hxy, hyz, hxz, exy, eyz, ezx⟩
+    exhaustive by triangle_two_color_exhaustive edge c x y z hxy hyz hxz
+  exhaustive by pigeonhole_edges_at edge v
 ```
 
-この証明では、`edge` 以外の補助的な辺色関数は作らない。
-外側でも内側でも、同じ `edge : Sym2 (Fin 6) → Color` を
-`as multiset (Sym2 (Fin 6) → Color)` として直接マッチしている。
+## パターンが与える証拠
 
-外側の `match` は
+`$x` は値の束縛、`#e` は式 e との等式を要求するバリューパターンである。
+関数 `edge` を全入出力ペアの多重集合として観察する。
+外側のパターンが与える `Star` は、v と各頂点の相異性、
+x,y,z の相異性、v からの3辺の色が c であることを含む。
+網羅性補題 `pigeonhole_edges_at` は、色ごとの近傍の要素数の和が5であることを証明し、
+要素数が3以上の色の集合から3頂点を取り出す。補題の証明も両版の全文に含める。
 
-```egison
-(#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _
-```
+内側の第1の腕では p,q が x,y,z のいずれかであること、p≠q、辺の色を受け取る。
+第2の腕では3辺が反対色であることを受け取る。
+`triangle_two_color_exhaustive` が両腕の網羅性を証明する。
+第2の腕は前の腕の探索失敗に依存せず、その腕の色の証拠だけを使う。
+主張と証明中の分解を同じパターンで書けることが、この例の中心である。
 
-により、固定した `v` から出る同色3辺を取り出す。
-網羅性は `pigeonhole_edges_at edge v` によって与えられる。
+多重集合の `::` は異なる出現を選ぶ。関数のグラフでは各入力辺が一度だけ現れ、
+共通端点を持つ辺の相異性から x,y,z の相異性を導ける。
+残りを束縛する場合の型は `Multiset (Sym2 (Fin 6) × Color)` である。
+内側の照合は元の `edge` を再び観察するため、残りを全関数として扱う処理は必要ない。
 
-内側の `match` は2ケースだけである。
-第1ケースは、`x,y,z` の内部辺のどれか1本が色 `c` である場合で、
-その辺の両端を `$p`, `$q` として受け取る。
-外側のマッチから `v-p`, `v-q` も色 `c` なので、`v,p,q` が単色三角形になる。
-第2ケースは、内部辺に色 `c` がない場合で、2色性から内部3辺が反対色 `c'` でそろう。
+## 下界のコード
 
-#### パターン変数間の関係の自動導出と自動検証
+`counterexample` は5角形の周上の辺を赤、対角線を青に塗る。
+`ramsey_five_counterexample` が単色三角形の不在を `decide` で証明する。
+自己ループは `Monochromatic` の頂点の相異性によって除外される。
+上界と下界の両方を全文に含める。
 
-一般に、パターン中のパターン変数の間の関係のうち、パターンの構造から自然に導かれる性質（相異性、等価性、型の制約など）の証明はすべて自動的に導出される。これはパターンマッチ指向証明の基本原理であり、証明者がこれらの関係を明示的に記述・証明する必要がない。この原理は、定理の `matches` パターンと証明内部の `match` パターンの両方に適用される。
-
-**定理の `matches` パターンからの関係の列挙:**
-定理のパターン `($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _` からは、証明すべき以下の関係が自動的に列挙される：
-- **相異性**: `x ≠ y`, `y ≠ z`, `z ≠ x`（各辺パターンが自己ループにマッチしない Sym2 matcher の性質から）
-- **三角形の構成**: 3辺 `⟦(x,y)⟧`, `⟦(y,z)⟧`, `⟦(z,x)⟧` の形成
-- **単色性**: `edge ⟦(x,y)⟧ = c`, `edge ⟦(y,z)⟧ = c`, `edge ⟦(z,x)⟧ = c`（非線形パターン `#c` から）
-
-**証明内部の外側 `match` パターンからの関係の導出:**
-外側のパターン `(#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _` にマッチしたことから、以下の関係が自動的に導出される：
-1. **頂点の相異性（Sym2 matcher の性質から）**: `v ≠ x`, `v ≠ y`, `v ≠ z` — ペアパターンは自己ループにマッチしないため、マッチした各辺の両端は異なる。
-2. **辺の相異性（duplicate-free 性 + multiset の `::` から）**: `x ≠ y`, `x ≠ z`, `y ≠ z` — multiset の `::` が保証するのは取り出した「出現」の相異までであり、一般の多重集合では値の相異は従わない（`⟦a, a⟧` は `$x :: #x :: _` にマッチする）。ここでは対象が関数 `edge` のグラフでありキーの重複がない（duplicate-free）ため、3 つの出現は相異なる辺。3 辺が共通端点 `v` を持つことと合わせて `x`, `y`, `z` の相異が従う。
-3. **同色性（非線形パターンから）**: `edge ⟦(v,x)⟧ = c`, `edge ⟦(v,y)⟧ = c`, `edge ⟦(v,z)⟧ = c` — 非線形パターン `#v`, `#c` によるマッチから。
-
-**証明内部の内側 `match` パターンからの関係の導出:**
-内側の第1ケース
-
-```egison
-(($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _
-```
-
-からは、`p` と `q` が `x,y,z` のいずれかであること、
-`edge ⟦(p,q)⟧ = c` であることが自動的に導出される。
-外側のマッチからは `v` と `x,y,z` のそれぞれを結ぶ辺が色 `c` であることが得られているので、
-`v,p,q` が定理の単色三角形パターンを満たすことが自動検証される。
-
-内側の第2ケースからは、`edge ⟦(x,y)⟧ = c'`, `edge ⟦(y,z)⟧ = c'`,
-`edge ⟦(z,x)⟧ = c'` が得られる。
-したがって、`x,y,z` が色 `c'` の単色三角形を形成する。
-
-Lean 4 版では、外側の同色辺を `edge_vx`, `edge_vy`, `edge_vz` として明示的に保持し、
-頂点の相異性には `hxy`, `hyz`, `hxz`、内側の各辺の色には `hcxy`, `hcyz`, `hcxz` のような証明項を個別に扱う必要がある。
-パターンマッチ指向版では、これらの関係はすべてマッチの成立から自動的に得られる。
-
-**`exact` での証明の完了:**
-各ケースで `exact` に定理の `matches` パターン中のパターン変数に対応する値を列挙するだけでよい。証明内部のパターンマッチで導出された関係が、定理のパターンから列挙された関係をすべて含んでいるかが自動的にチェックされるためである。
-
-例えば、内側の第1ケースでは：
-- 外側のマッチから: `edge ⟦(v,x)⟧ = c`, `edge ⟦(v,y)⟧ = c`, `edge ⟦(v,z)⟧ = c`
-- 内側のマッチから: `p,q ∈ {x,y,z}`, `edge ⟦(p,q)⟧ = c`
-
-これらを合わせると、`v,p,q` が色 `c` の単色三角形であることが自動で確認される。
-証明者は `exact ⟨v, p, c, q⟩` として変数の対応を指示するだけでよく、
-関係の証明を明示的に構築する必要がない。
-
----
-
-## C. 比較
-
-### 量的比較
-
-| | Lean 4 | パターンマッチ指向 |
-|---|---|---|
-| 定理の主張 | `∃ (x y z), monochromatic edge x y z` | `matches ($x, $y) → $c :: ...` |
-| 補助定義 | `monochromatic` + `same_color_neighbors` が必要 | 不要（パターンが定義） |
-| 存在量化 | 明示的に `∃` | パターン変数に吸収 |
-| 始点からの5辺 | `same_color_neighbors edge v c` で集合として切り出す | `(#v, $x)` で `edge` から直接マッチ |
-| 行数（主定理の証明） | 約25行 | 約15行 |
-| 補助補題 | 1つ（鳩の巣原理、約10行） | 2つ（固定始点の鳩の巣原理、三角形内部の網羅性） |
-| 鳩の巣原理の証明 | `by_contra` + `omega` | 固定した `v` に対するネストされた multiset マッチ |
-| `obtain`（3頂点の取り出し） | 1箇所 | 0箇所（multiset `::` に吸収） |
-| `have`（辺の色の証明） | 3箇所 | 0箇所（非線形パターンに吸収） |
-| 辺の色の場合分け | `rcases` フラット4ケース | `match` 2ケース（内部辺のどれかが `c` / 内部3辺が反対色） |
-| 反対色の導出 | `cases ... <;> simp_all` 3箇所 | `triangle_two_color_exhaustive` の multiset マッチで処理 |
-| 網羅性の証明 | 不要（`rcases` は構造的に網羅的） | 外側: `pigeonhole_edges_at`; 内側: `triangle_two_color_exhaustive` |
-| `exact` に渡す証明項 | 明示的な証明項の構築が必要 | パターン変数の列挙のみ（関係は自動検証） |
-
-### 補助補題を含めた総量
-
-両者とも鳩の巣原理を補助補題として切り出している。
-
-Lean 4 版は主定理が約25行、補助補題 `pigeonhole_edges` が約10行で、
-合計約35行。さらに `monochromatic` と `same_color_neighbors` の定義が別途必要。
-
-パターンマッチ指向版は、主定理では外側・内側とも `edge` 自体を
-`as multiset (Sym2 (Fin 6) → Color)` として直接マッチする。
-補助補題は `pigeonhole_edges_at` と `triangle_two_color_exhaustive` の2つである。
-前者は固定した始点 `v` から出る5本の辺だけに関する鳩の巣原理であり、
-後者は三角形内部の3辺を multiset として扱う網羅性補題である。
-`monochromatic` や `same_color_neighbors` の定義は不要である。
-
-### 場合分けの構造の比較
-
-Lean 4 版では `rcases Decidable.em` を連鎖させ、内部の3辺のいずれかが
-色 `c` である3ケースと、すべて反対色である1ケースを扱う。
-各ケースで頂点の相異性や辺の色を示す証明項を `exact` に渡す。
-
-パターンマッチ指向版では、内部辺のどれか1本が色 `c` であるケースと、
-内部3辺が反対色であるケースの2腕を使う。第1腕のパターンは次の形である。
-
-```egison
-| (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _ =>
-    exact ⟨v, p, c, q⟩
-```
-
-この腕は、両端が `x,y,z` に属する色 `c` の辺を取り出す。
-非線形パターン `#c` と and パターン `$p & (…)` が同色性と所属を表し、
-Sym2 のペアパターンが両端の相異性を与える。
-第2腕は、3辺が同じ反対色であることを1つの multiset パターンで要求する。
-網羅性は `triangle_two_color_exhaustive` が保証する。
-
-外側・内側とも元の `edge` を観察し、必要な部分構造をパターンで取り出す。
-各腕で得た関係を使い、`exact` にパターン変数の値を渡して単色三角形を構成する。
+`pattern_iff_ordinary` がパターンで表す主張と通常の存在命題の同値性を証明する。
+証拠を明示した Lean 版にもこの同値性の完全な証明を含める。
