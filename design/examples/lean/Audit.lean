@@ -146,3 +146,32 @@ import DesignExamples
 #print axioms DesignExamples.PatternStyle.EulerCircuit.connected_euler_circuit_iff
 #print axioms DesignExamples.LGV.vertexCut
 #print axioms DesignExamples.PatternStyle.LGV.signReversing_canonical_eq
+
+-- 全称的な言明と，配置を使う変換の補足．
+#print axioms DesignExamples.ConfigurationRules.allMatches_iff_certificates
+#print axioms DesignExamples.ConfigurationRules.noMatch_iff_all_false
+#print axioms DesignExamples.ConfigurationRules.all_rule_outputs
+#print axioms DesignExamples.ConfigurationRules.cancel_all_matches
+#print axioms DesignExamples.ConfigurationRules.cancel_all_iff_explicit
+#print axioms DesignExamples.ConfigurationRules.no_inverse_cut_nil
+#print axioms DesignExamples.ConfigurationRules.cancelAt_relation
+#print axioms DesignExamples.ConfigurationRules.cancelsTo_good
+#print axioms DesignExamples.ConfigurationRules.cancelsTo_iff_explicit
+#print axioms DesignExamples.ConfigurationRules.two_cuts
+#print axioms DesignExamples.ConfigurationRules.equal_cuts_all_join
+#print axioms DesignExamples.ConfigurationRules.equal_cuts_iff_local
+#print axioms DesignExamples.ConfigurationRules.swapCut_involutive
+#print axioms DesignExamples.ConfigurationRules.exchangesTo_iff_explicit
+#print axioms DesignExamples.ConfigurationRules.swapPathsAt_vertex_form
+#print axioms DesignExamples.ConfigurationRules.swapPathsAt_endpoints
+#print axioms DesignExamples.ConfigurationRules.swapPathsAt_weight
+#print axioms DesignExamples.ConfigurationRules.tail_swaps_all
+#print axioms DesignExamples.ConfigurationRules.selected_involutive
+#print axioms DesignExamples.ConfigurationRules.Counterexample.second_cut_valid
+#print axioms DesignExamples.ConfigurationRules.Counterexample.different_cut_does_not_restore
+#print axioms DesignExamples.ConfigurationRules.Counterexample.edge_rank
+#print axioms DesignExamples.ConfigurationRules.Counterexample.counterexample_paths
+#print axioms DesignExamples.ConfigurationRules.Counterexample.counterexample_no_repeated_vertices
+#print axioms DesignExamples.Ordinary.ConfigurationRules.cancel_all
+#print axioms DesignExamples.Ordinary.ConfigurationRules.all_equal_cuts_join
+#print axioms DesignExamples.Ordinary.ConfigurationRules.tail_swaps_all

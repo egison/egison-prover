@@ -1,4 +1,5 @@
 import DesignExamples.PatternContracts
+import DesignExamples.ConfigurationRules
 import DesignExamples.PatternStyle.Ramsey
 import DesignExamples.PatternStyle.Schur
 import DesignExamples.PatternStyle.Pumping

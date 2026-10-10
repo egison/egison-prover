@@ -1,0 +1,117 @@
+-- 提案記法。forallMatch は全称命題であり，列挙を実行しない。
+-- ConfigurationRulesCommon が共通の関係，変換，補助証明を定める。
+-- introMatch は束縛値と関係の証拠を任意に導入する。
+import DesignExamples.ConfigurationRulesCommon
+
+namespace DesignExamples.PatternStyle.ConfigurationRules
+
+section GroupWords
+variable {G : Type*} [Group G]
+
+theorem cancel_all (w : List G) :
+    forallMatch w as list G with
+    | $pre ++ $g :: #(g⁻¹) :: $post =>
+      (pre ++ post).prod = w.prod ∧ (pre ++ post).length + 2 = w.length := by
+  introMatch h
+  subst w
+  constructor
+  · exact (DesignExamples.GroupWords.cancel_pair pre g post).symm
+  · simp only [List.length_append, List.length_cons]
+    omega
+
+-- 存在する出力を述べる関係。束縛はこの命題の内部に閉じる。
+def CancelsTo (w r : List G) : Prop :=
+  (w, r) matches
+    ($pre ++ $g :: #(g⁻¹) :: $post, #(pre ++ post))
+    as (list G, list G)
+
+theorem cancelsTo_good {w r : List G} (h : CancelsTo w r) : DesignExamples.ConfigurationRules.CancelGood w r := by
+  match hc : (w, r) as (list G, list G) with
+  | ($pre ++ $g :: #(g⁻¹) :: $post, #(pre ++ post)) =>
+    subst w r
+    exact DesignExamples.ConfigurationRules.cancel_all_explicit (pre ++ g :: g⁻¹ :: post) pre g post rfl
+  exhaustive by h
+
+-- 変換は選択済みのデータを受け取る。cut が単一腕のデータ網羅性を与える。
+-- 存在命題 CancelsTo から暗黙に値を選ぶ操作は含めない。
+def cancelAt (w : List G) (cut : {c // DesignExamples.ConfigurationRules.InverseMatch w c}) : {r // DesignExamples.ConfigurationRules.CancelGood w r} := by
+  match h : w as list G with
+  | $pre ++ $g :: #(g⁻¹) :: $post =>
+    refine ⟨pre ++ post, ?_, ?_⟩
+    · subst w
+      exact (DesignExamples.GroupWords.cancel_pair pre g post).symm
+    · subst w
+      simp only [List.length_append, List.length_cons]
+      omega
+  exhaustive by cut
+end GroupWords
+
+section Joining
+variable {A : Type*}
+
+-- 同じ語を独立に二度観察する。二つの選択は一致しても重なってもよい。
+theorem all_equal_cuts_join (w : List A) :
+    forallMatch (w, w) as (list A, list A) with
+    | ($p ++ $a :: #a :: $s, $q ++ $b :: #b :: $t) =>
+      DesignExamples.AdjacentCancellation.Join (p ++ s) (q ++ t) := by
+  introMatch h
+  exact DesignExamples.AdjacentCancellation.local_confluence
+    ⟨p, a, s, h.1, rfl⟩ ⟨q, b, t, h.2, rfl⟩
+end Joining
+
+section Tails
+variable {V : Type*} [DecidableEq V] {D : DesignExamples.LGV.SimpleDigraph V}
+
+def ExchangesTo (target result : List V × List V) : Prop :=
+  (target, result) matches
+    (($preI ++ $v :: $tailI, $preJ ++ #v :: $tailJ),
+     (#(preI ++ v :: tailJ), #(preJ ++ v :: tailI)))
+    as ((list V, list V), (list V, list V))
+
+-- 任意の共有頂点と切断で，実際の道と交換後の端点を構成する。
+theorem tail_swaps_all (hac : D.IsAcyclic)
+    (p q : DesignExamples.LGV.SimpleDigraph.Path D) :
+    forallMatch (p.vertices, q.vertices) as (list V, list V) with
+    | ($preI ++ $v :: $tailI, $preJ ++ #v :: $tailJ) =>
+      ∃ pq : DesignExamples.LGV.SimpleDigraph.Path D × DesignExamples.LGV.SimpleDigraph.Path D,
+        (pq.1.vertices, pq.2.vertices) = (preI ++ v :: tailJ, preJ ++ v :: tailI) ∧
+        pq.1.start = p.start ∧ pq.1.finish = q.finish ∧
+        pq.2.start = q.start ∧ pq.2.finish = p.finish := by
+  introMatch h
+  let cut : {c // DesignExamples.ConfigurationRules.TailMatch (p.vertices, q.vertices) c} :=
+    ⟨⟨preI, v, tailI, preJ, tailJ⟩, Prod.ext h.1 h.2⟩
+  exact ⟨DesignExamples.ConfigurationRules.swapPathsAt p q cut, DesignExamples.ConfigurationRules.swapPathsAt_vertex_form hac p q cut,
+    DesignExamples.ConfigurationRules.swapPathsAt_endpoints p q cut⟩
+
+-- 同じ cut を使う型付きの変換。辺の証拠を保持する構成を共有する。
+noncomputable def swapPathsAt (p q : DesignExamples.LGV.SimpleDigraph.Path D)
+    (cut : {c // DesignExamples.ConfigurationRules.TailMatch (p.vertices, q.vertices) c}) :
+    DesignExamples.LGV.SimpleDigraph.Path D × DesignExamples.LGV.SimpleDigraph.Path D :=
+  DesignExamples.ConfigurationRules.swapPathsAt p q cut
+
+theorem swapPathsAt_weight {K : Type*} [CommRing K]
+    (wt : DesignExamples.LGV.ArcWeight D K)
+    (p q : DesignExamples.LGV.SimpleDigraph.Path D)
+    (cut : {c // DesignExamples.ConfigurationRules.TailMatch (p.vertices, q.vertices) c}) :
+    DesignExamples.LGV.pathWeight wt p * DesignExamples.LGV.pathWeight wt q =
+      DesignExamples.LGV.pathWeight wt (swapPathsAt p q cut).1 *
+      DesignExamples.LGV.pathWeight wt (swapPathsAt p q cut).2 :=
+  DesignExamples.ConfigurationRules.swapPathsAt_weight wt p q cut
+end Tails
+
+-- 配置のデータ上での対合と，対象上での対合をつなぐ共通の定理。
+-- C は対象・束縛・関係の証拠を含む依存対でもよい。
+theorem selected_involutive {X C : Type*}
+    (source : C → X) (exchange : C → C) (select : X → C)
+    (source_select : ∀ x, source (select x) = x)
+    (exchange_twice : Function.Involutive exchange)
+    (stable : ∀ x, select (source (exchange (select x))) = exchange (select x)) :
+    Function.Involutive (fun x => source (exchange (select x))) := by
+  intro x
+  calc
+    source (exchange (select (source (exchange (select x))))) =
+        source (exchange (exchange (select x))) :=
+      congrArg (fun c => source (exchange c)) (stable x)
+    _ = source (select x) := congrArg source (exchange_twice (select x))
+    _ = x := source_select x
+end DesignExamples.PatternStyle.ConfigurationRules

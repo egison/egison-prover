@@ -13,6 +13,7 @@
 | 一般の有限 Hall | [Hall.lean](lean/DesignExamples/Hall.lean) | [Hall.pmop](pmop/DesignExamples/Hall.pmop) |
 | 対合の偶数性・和・部分集合の符号反転 | [Involution.lean](lean/DesignExamples/Involution.lean) | [Involution.pmop](pmop/DesignExamples/Involution.pmop) |
 | 群の語の逆元消去・簡約 | [GroupWords.lean](lean/DesignExamples/GroupWords.lean) | [GroupWords.pmop](pmop/DesignExamples/GroupWords.pmop) |
+| 全称的な言明・配置を使う変換 | [ConfigurationRules.lean](lean/DesignExamples/ConfigurationRules.lean) | [ConfigurationRules.pmop](pmop/DesignExamples/ConfigurationRules.pmop) |
 | 有限置換の互換への分解 | [Permutations.lean](lean/DesignExamples/Permutations.lean) | [Permutations.pmop](pmop/DesignExamples/Permutations.pmop) |
 | 歩道から道への変換 | [WalkPaths.lean](lean/DesignExamples/WalkPaths.lean) | [WalkPaths.pmop](pmop/DesignExamples/WalkPaths.pmop) |
 | 解消規則・有限導出の正しさと充足不可能性 | [Resolution.lean](lean/DesignExamples/Resolution.lean) | [Resolution.pmop](pmop/DesignExamples/Resolution.pmop) |
@@ -186,6 +187,16 @@ exhaustive by coverage
 腕がリストを返す場合は、`List.flatten` で明示的に連結する。
 逆元対の例では有限リストに対する実行を定義し、`keep`・`bind`・`mapWithProof` と
 その汎用的な証明への展開を検査する。詳しい型と対応は [設計例](../proof-brevity.md) に記す。
+
+[全称的な言明と配置を使う変換](../pwl-quantified-transforms.md) は，任意の逆元対の削除，
+二つの等しい要素対の削除の合流性，LGVの任意の共有頂点での交換を扱う．
+[ConfigurationRulesCommon.lean](lean/DesignExamples/ConfigurationRulesCommon.lean) と
+[ConfigurationRulesCommon.pmop](pmop/DesignExamples/ConfigurationRulesCommon.pmop) は，
+同じ関係，証拠付きの変換，汎用定理の完全な定義と証明を共有する．
+`forallMatch` は `∀ b, R(e,b) → Q(b)` を表す全称命題で，列挙を実行しない．
+存在は別の命題とし，値を返す変換には分解のデータを渡す．通常のLeanの言明との同値性，
+型付きの道・端点・重み，配置の交換と選択の保存から対象の対合を導く定理，
+共有頂点を変更する反例をLeanで検査する．提案記法の証明の導入形は `introMatch h` とする．
 
 ## マッチャーの対象型・残りの型・証拠
 
