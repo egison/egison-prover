@@ -61,7 +61,7 @@ theorem pair_or_empty (S : Finset A) (σ : A → A)
     (hclosed : ∀ x ∈ S, σ x ∈ S) (hfixed : ∀ x ∈ S, σ x ≠ x) :
     S.val matches [] | $x :: #(σ x) :: $R as multiset A := by
   obtain rfl | ⟨x, hx⟩ := S.eq_empty_or_nonempty
-  · exact Or.inl rfl
+  · exact Or.inl ⟨⟩
   · have := take_two S x (σ x) hx (hclosed x hx) (hfixed x hx)
     exact Or.inr ⟨x, (remainder S σ x).val⟩
 
