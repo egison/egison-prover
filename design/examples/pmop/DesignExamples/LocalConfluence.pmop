@@ -1,4 +1,5 @@
 -- 提案ソース。全補助補題は AdjacentCancellationCommon と TwoBlocks にある。
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 import DesignExamples.AdjacentCancellationCommon
 
 namespace DesignExamples.AdjacentCancellation
@@ -8,7 +9,7 @@ variable {A : Type*}
 theorem local_confluence {w u v : List A} (hu : Step w u) (hv : Step w v) : Join u v := by
   obtain ⟨p, a, s, rfl, rfl⟩ := hu
   obtain ⟨q, b, t, hsource, rfl⟩ := hv
-  match h : (p, a, s, q, b, t) as
+  match (p, a, s, q, b, t) as
       (list A, value A, list A, list A, value A, list A) with
   | ($pre, $x, $post, #pre, #x, #post) =>
     simp_all only []

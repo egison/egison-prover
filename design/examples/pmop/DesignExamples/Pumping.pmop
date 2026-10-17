@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
 import DesignExamples.Common
 
@@ -85,10 +86,10 @@ theorem loop_iteration (M : DFA Alpha Q) (q : Q) (y : List Alpha)
 theorem pumping_lemma (M : DFA Alpha Q) (w : List Alpha)
     (hacc : w ∈ M.accepts) (hlen : Fintype.card Q ≤ w.length) :
     ∃ x y z, IsPumpingDecomposition M w x y z := by
-  match hsplit : (run M w).take (Fintype.card Q + 1) as list Q with
+  match (run M w).take (Fintype.card Q + 1) as list Q with
   | $pre ++ $q :: $mid ++ #q :: $post =>
     obtain ⟨x, y, z, heq, hbound, hne, hx, hy, hz⟩ :=
-      split_to_loop M w pre q mid post hlen hsplit
+      split_to_loop M w pre q mid post hlen (by assumption)
     refine ⟨x, y, z, heq, hne, hbound, ?_⟩
     intro k
     change M.evalFrom M.start (x ++ repeatWord y k ++ z) ∈ M.accept

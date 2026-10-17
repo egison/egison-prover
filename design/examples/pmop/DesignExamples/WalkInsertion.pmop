@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 完全な提案ソース。構文と、検査用の手動展開は ../../README.md を参照。
 import DesignExamples.WalkInsertionCommon
 
@@ -10,7 +11,7 @@ variable {A : Type*}
 theorem insert_closed_walk (E : A → A → Prop) (s t v : A) (w loop : List A)
     (hw : Walk E s t w) (hc : Walk E v v loop) (hv : v ∈ w) :
     ∃ r, Inserted v w loop r ∧ Walk E s t r ∧ r.length + 1 = w.length + loop.length := by
-  match heq : (w, loop) as (list A, list A) with
+  match (w, loop) as (list A, list A) with
   | ($pre ++ #v :: $post, #v :: []) =>
     subst w loop
     refine ⟨pre ++ v :: post, ⟨pre, post, rfl, Or.inl ⟨rfl, rfl⟩⟩, hw, ?_⟩

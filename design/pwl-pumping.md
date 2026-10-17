@@ -1,5 +1,9 @@
 # DFA の pumping lemma
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 DFA（決定性有限オートマトン）は、入力記号ごとに次の状態を一意に定める機械である。
 `DFA Alpha Q` の状態型 Q を有限とし、開始状態を `M.start`、
 指定した状態から語を読み終えた状態を `M.evalFrom` とする。
@@ -46,10 +50,10 @@ theorem pumping_lemma (M : DFA Alpha Q) (w : List Alpha)
 theorem pumping_lemma (M : DFA Alpha Q) (w : List Alpha)
     (hacc : w ∈ M.accepts) (hlen : Fintype.card Q ≤ w.length) :
     ∃ x y z, IsPumpingDecomposition M w x y z := by
-  match hsplit : (run M w).take (Fintype.card Q + 1) as list Q with
+  match (run M w).take (Fintype.card Q + 1) as list Q with
   | $pre ++ $q :: $mid ++ #q :: $post =>
     obtain ⟨x, y, z, heq, hbound, hne, hx, hy, hz⟩ :=
-      split_to_loop M w pre q mid post hlen hsplit
+      split_to_loop M w pre q mid post hlen (by assumption)
     refine ⟨x, y, z, heq, hne, hbound, ?_⟩
     intro k
     change M.evalFrom M.start (x ++ repeatWord y k ++ z) ∈ M.accept

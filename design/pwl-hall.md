@@ -1,5 +1,9 @@
 # 一般の有限 Hall の結婚定理
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 二部グラフは、左の頂点型 X、右の頂点型 Y、辺の関係 `E : X → Y → Prop` で表す。
 X,Yを有限とする。左側を覆うマッチングは、各 x を隣接する頂点 f(x) に対応させ、
 異なる x を異なる頂点へ写す関数 f である。
@@ -40,8 +44,8 @@ theorem hall (E : X → Y → Prop) [DecidableRel E]
     (h : ¬(E matches $S ⤳ $T where T.card < S.card as bipartite_graph X Y)) :
     E matches $f as matching_of E := by
   have hc : HallCondition E := (hall_iff_no_bad_pair E).mpr h
-  match hf : E as matching_of E with
-  | $f => exact ⟨f⟩ by exact hf
+  match E as matching_of E with
+  | $f => exact ⟨f⟩
   exhaustive by hall_from_card E hc
 ```
 

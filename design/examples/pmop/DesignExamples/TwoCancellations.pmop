@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案ソース。matchAll は成功する分解を、その証拠とともにすべて列挙する。
 -- 証拠を持つ列挙への展開と完全性の検査は ../../README.md の対応先を参照。
 import DesignExamples.TwoCancellationsCommon
@@ -17,7 +18,7 @@ theorem values_inverseCuts (w : List G) :
   rw [inverseCuts, values_keep, values_certifiedCuts]
 
 def certified (w : List G) : Certified (Good w) :=
-  matchAll h : w as list G with
+  matchAll w as list G with
   | $pre ++ $g :: #(g⁻¹) :: $mid ++ $k :: #(k⁻¹) :: $post =>
     ⟨pre ++ (mid ++ post), by
       subst w
@@ -44,7 +45,7 @@ theorem mem_certified_iff {w r : List G} : r ∈ values (certified w) ↔ Matche
 def certifiedMany : (n : Nat) → (w : List G) → Certified (GoodMany n w)
   | 0, w => [⟨w, rfl, by simp⟩]
   | n + 1, w =>
-    List.flatten <| matchAll h : w as list G with
+    List.flatten <| matchAll w as list G with
     | $pre ++ $g :: #(g⁻¹) :: $post =>
       mapWithProof (certifiedMany n post) (fun r => pre ++ r) fun r hr => by
         subst w

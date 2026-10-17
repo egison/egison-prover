@@ -5,6 +5,7 @@ Source: https://github.com/faabian/algebraic-combinatorics/tree/3b333089a7a7cd64
 License: CC BY-NC 4.0; see design/examples/LICENSE-AlgebraicCombinatorics.
 The copied and adapted LGV proofs retain that license, separately from the other examples.
 -/
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 import DesignExamples.LGVCommon
 
 set_option backward.isDefEq.respectTransparency false
@@ -30,11 +31,11 @@ noncomputable def signReversing {D : SimpleDigraph V} (_hac : D.IsAcyclic) {k : 
     (sp : pathTupleWithPerm (D := D) A B)
     (hip : sp.2.isIntersecting) : pathTupleWithPerm (D := D) A B := by
   let ⟨⟨i, j, ⟨v, hvi, hvj⟩⟩, hij⟩ := getCanonicalIntersectionData sp.2 hip
-  match cuts : ((sp.2.paths i).vertices, (sp.2.paths j).vertices) as (list V, list V) with
+  match ((sp.2.paths i).vertices, (sp.2.paths j).vertices) as (list V, list V) with
   | ($preI ++ #v :: $tailI, $preJ ++ #v :: $tailJ) =>
     let newPaths : Fin k → SimpleDigraph.Path D := fun l =>
-      if h : l = i then (exchangeTailsOfCuts (sp.2.paths i) (sp.2.paths j) v preI tailI preJ tailJ cuts.1 cuts.2).1
-      else if h' : l = j then (exchangeTailsOfCuts (sp.2.paths i) (sp.2.paths j) v preI tailI preJ tailJ cuts.1 cuts.2).2
+      if h : l = i then (exchangeTailsOfCuts (sp.2.paths i) (sp.2.paths j) v preI tailI preJ tailJ (by assumption) (by assumption)).1
+      else if h' : l = j then (exchangeTailsOfCuts (sp.2.paths i) (sp.2.paths j) v preI tailI preJ tailJ (by assumption) (by assumption)).2
       else sp.2.paths l
     have h_starts : ∀ l, (newPaths l).start = A l := by
       intro l

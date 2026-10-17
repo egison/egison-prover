@@ -1,5 +1,9 @@
 # 全称的な言明と，選んだ配置を使う変換
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 パターンは，対象を分解して得る値と，それらの関係を記述する．この文書では，
 その関係を使って「すべての分解について成立する性質」を述べ，選んだ分解から
 結果とその正しさの証拠を構成する．群の語の逆元対削除，同一要素対の削除の
@@ -17,7 +21,7 @@ LGVの道の構成とその性質は，既存の完全なLGVの補助証明を�
 ## 1．全称的な言明の意味と束縛
 
 `forallMatch` を，パターンが記述するすべての配置についての命題とする．
-`introMatch h` は，その命題を証明する際に任意の束縛値と関係の証拠 `h` を導入する．
+`introMatch` は，その命題を証明する際に任意の束縛値を導入し，関係の条件を暗黙に保持する．
 
 ```egison
 forallMatch e as M with
@@ -69,7 +73,7 @@ theorem cancel_all (w : List G) :
     forallMatch w as list G with
     | $pre ++ $g :: #(g⁻¹) :: $post =>
       (pre ++ post).prod = w.prod ∧ (pre ++ post).length + 2 = w.length := by
-  introMatch h
+  introMatch
   subst w
   constructor
   · exact (DesignExamples.GroupWords.cancel_pair pre g post).symm
@@ -77,7 +81,7 @@ theorem cancel_all (w : List G) :
     omega
 ```
 
-`h` は `w = pre ++ g :: g⁻¹ :: post` である．分解を代入した後は，
+`w = pre ++ g :: g⁻¹ :: post` を暗黙に保持する．`subst w` でその分解を代入した後は，
 両版とも同じ群の等式と長さの計算を使う．`cancel_all_iff_explicit` は，
 二つの言明が同じことを述べることを証明する．
 

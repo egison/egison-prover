@@ -1,5 +1,9 @@
 # Ramsey R(3,3)=6
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 6頂点の完全グラフの辺を赤・青の2色で塗ると、必ず単色の三角形が存在する。
 5頂点では単色三角形を持たない彩色があるため、必要な頂点数は6である。
 `Color` は `inductive Color where | red | blue` により定義し、
@@ -56,27 +60,33 @@ theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
     edge matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
       as multiset (Sym2 (Fin 6) → Color) := by
   let v : Fin 6 := 0
-  match hstar : edge as multiset (Sym2 (Fin 6) → Color) with
+  match edge as multiset (Sym2 (Fin 6) → Color) with
   | (#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ =>
-    rcases hstar with ⟨hvx, hvy, hvz, hxy, hxz, hyz, evx, evy, evz⟩
-    match htri : edge as multiset (Sym2 (Fin 6) → Color) with
-    | (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _ =>
-      rcases htri with ⟨hp, hq, hpq, epq⟩
-      have hvp : v ≠ p := by rcases hp with rfl | rfl | rfl <;> assumption
-      have hvq : v ≠ q := by rcases hq with rfl | rfl | rfl <;> assumption
-      have evp : edge s(v, p) = c := by rcases hp with rfl | rfl | rfl <;> assumption
-      have evq : edge s(v, q) = c := by rcases hq with rfl | rfl | rfl <;> assumption
-      exact ⟨v, p, c, q⟩ by exact ⟨hvp, hpq, hvq, evp, epq, by simpa [Sym2.eq_swap] using evq⟩
-    | (#x, #y) → #(c.opposite) :: (#y, #z) → #(c.opposite) ::
-        (#z, #x) → #(c.opposite) :: _ =>
-      rcases htri with ⟨exy, eyz, ezx⟩
-      exact ⟨x, y, c.opposite, z⟩ by
-        exact ⟨hxy, hyz, hxz, exy, eyz, ezx⟩
-    exhaustive by triangle_two_color_exhaustive edge c x y z hxy hyz hxz
-  exhaustive by pigeonhole_edges_at edge v
+    match edge as multiset (Sym2 (Fin 6) → Color) with
+    | (($p & (#x | #y | #z)),
+       ($q & (#x | #y | #z))) → #c :: _ =>
+      exact ⟨v, p, c, q⟩
+    | (#x, #y) → #(c.opposite) ::
+      (#y, #z) → #(c.opposite) ::
+      (#z, #x) → #(c.opposite) :: _ =>
+      exact ⟨x, y, c.opposite, z⟩
+    exhaustive by
+      triangle_two_color_exhaustive edge c x y z
+  exhaustive by
+    pigeonhole_edges_at edge v
 ```
 
-## パターンが与える証拠
+## 条件の暗黙の利用
+
+結論のパターン変数は初出順に `x,y,c,z` なので，第1の腕は `⟨v,p,c,q⟩`，
+第2の腕は `⟨x,y,c.opposite,z⟩` を与える．第1の腕では，外側の星の条件と
+`p,q ∈ {x,y,z}`，`p ≠ q`，`edge s(p,q) = c` を合わせ，
+`v ≠ p`，`p ≠ q`，`v ≠ q` と三辺の色を示す．第2の腕では，
+外側の三頂点の相異性と，内側の反対色の三辺を使う．順序なしペアの対称性も使う．
+内側の網羅性補題が要求する三頂点の相異性は，外側の条件から補うものとする．
+条件をマッチャー定義から得て合成し，これらの証明項を構成する具体的な機構は今後設計する．
+
+## パターンが与える条件
 
 `$x` は値の束縛、`#e` は式 e との等式を要求するバリューパターンである。
 関数 `edge` を全入出力ペアの多重集合として観察する。

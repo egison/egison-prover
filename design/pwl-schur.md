@@ -1,5 +1,9 @@
 # Schur S(2)=4
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 ここでは Schur 数を「単色の x+y=z を避けられる最大の区間の長さ」と定義する。
 {1,…,5} の任意の2色塗りには、x,y,x+y が同色となる組があり、
 {1,…,4} にはそのような組を持たない彩色がある。x=y も許す。
@@ -51,35 +55,25 @@ theorem schur_two (c : D → Color) : ∃ x y z, Monochromatic c x y z := by
 theorem schur_two (c : D → Color) :
     graph c matches $x → $col :: $y → #col :: #(x+y) → #col :: _
       as set (Nat × Color) := by
-  match h1 : c as set (D → Color) with
+  match c as set (D → Color) with
   | #D.one → $col :: _ =>
-    match h2 : c D.two as value Color with
+    match c D.two as value Color with
     | #col =>
-      exact ⟨1, col, 1⟩ by
-        simpa [D.val, h1, h2] using
-          And.intro (mem_graph c .one) (And.intro (mem_graph c .one) (mem_graph c .two))
+      exact ⟨1, col, 1⟩
     | #(col.opposite) =>
-      match h4 : c D.four as value Color with
+      match c D.four as value Color with
       | #(col.opposite) =>
-        exact ⟨2, col.opposite, 2⟩ by
-          simpa [D.val, h2, h4] using
-            And.intro (mem_graph c .two) (And.intro (mem_graph c .two) (mem_graph c .four))
+        exact ⟨2, col.opposite, 2⟩
       | #col =>
-        match h5 : c D.five as value Color with
+        match c D.five as value Color with
         | #col =>
-          exact ⟨1, col, 4⟩ by
-            simpa [D.val, h1, h4, h5] using
-              And.intro (mem_graph c .one) (And.intro (mem_graph c .four) (mem_graph c .five))
+          exact ⟨1, col, 4⟩
         | #(col.opposite) =>
-          match h3 : c D.three as value Color with
+          match c D.three as value Color with
           | #(col.opposite) =>
-            exact ⟨2, col.opposite, 3⟩ by
-              simpa [D.val, h2, h3, h5] using
-                And.intro (mem_graph c .two) (And.intro (mem_graph c .three) (mem_graph c .five))
+            exact ⟨2, col.opposite, 3⟩
           | #col =>
-            exact ⟨1, col, 3⟩ by
-              simpa [D.val, h1, h3, h4] using
-                And.intro (mem_graph c .one) (And.intro (mem_graph c .three) (mem_graph c .four))
+            exact ⟨1, col, 3⟩
           exhaustive by (by simpa only [Color.opposite_opposite] using
             color_cases (c D.three) col.opposite)
         exhaustive by color_cases (c D.five) col
@@ -102,8 +96,10 @@ x と y は自然数として束縛され、`#(x+y)` も自然数である。
 和が1〜5の外にあると該当するキーが存在せず、マッチは成立しない。
 この形では、範囲外の和を有限型の値に無理に変換する必要がない。
 
-`match h : …` の h は色の等式の証拠を持つ。
-各 `exact ⟨x,col,y⟩ by …` は、3つの所属の証拠を構築する。
+各腕は，観察した色の等式を暗黙に保持する．`exact ⟨x,col,y⟩` は値だけを与え，
+`mem_graph` と色の等式，加法の計算から，結論が要求する3つの所属の証明項を構成するものとする．
+例えば最初の腕では `c D.one = col` と `c D.two = col` から，
+`(1,col)`，`(1,col)`，`(2,col)` の所属を示す．条件の取得とこの構成の機構は今後設計する．
 キー1の観察は `at_key`、色の場合分けは `color_cases` で網羅性を与える。
 二度反対色を取ると元の色になることも、共通コードで証明する。
 

@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
 import DesignExamples.Common
 
@@ -37,11 +38,11 @@ theorem walk_to_path (E : A → A → Prop) (s t : A) (w : List A)
   induction n using Nat.strong_induction_on with
   | h n ih =>
     intro w hn hw
-    match heq : w as list A with
+    match w as list A with
     | !($pre ++ $v :: $mid ++ #v :: $post) =>
       have hnd : w.Nodup := by
         by_contra hn
-        exact heq (repeated_split w hn)
+        exact ‹¬∃ pre v mid post, w = pre ++ v :: (mid ++ v :: post)› (repeated_split w hn)
       exact ⟨w, ⟨hw, hnd⟩, le_rfl⟩
     | $pre ++ $v :: $mid ++ #v :: $post =>
       subst w

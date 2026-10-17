@@ -1,5 +1,9 @@
 # パターンによる証明のわかりやすさと記述量
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 ## 数学的な構造と推論を読み取れること
 
 設計の第一の評価軸は、**どの構造を選び、その関係を使ってどの結論へ進むかを、
@@ -171,7 +175,7 @@ def certified (w : List G) : Certified (Good w) :=
 
 ```egison
 def certified (w : List G) : Certified (Good w) :=
-  matchAll h : w as list G with
+  matchAll w as list G with
   | $pre ++ $g :: #(g⁻¹) :: $mid ++ $k :: #(k⁻¹) :: $post =>
     ⟨pre ++ (mid ++ post), by
       subst w

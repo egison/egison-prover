@@ -1,5 +1,9 @@
 # 構造と推論が見える証明の例
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 [わかりやすさの基準](proof-brevity.md) に従い、選ぶ配置、構成要素の関係、場合分けの理由、
 結論の作り方をパターンから読める例を比較する。
 **解消規則の正しさ**、**閉じた歩道の挿入**、**行列式の積の公式**、
@@ -48,7 +52,7 @@ p ∨ X       ¬p ∨ Y
 照合する C,D は元の二つの節、R は結論の節である。
 
 ```egison
-match heq : (C, D, R) as
+match (C, D, R) as
     (multiset (Literal V), multiset (Literal V), multiset (Literal V)) with
 | (pos $p :: $xs, neg #p :: $ys, #(xs + ys)) =>
 ```
@@ -85,7 +89,7 @@ theorem resolution_sound (σ : V → Prop) {C D R : Clause V} (h : Resolves C D 
 theorem resolution_sound (σ : V → Prop) {C D R : Clause V} (h : Resolves C D R)
     (hC : ClauseHolds σ C) (hD : ClauseHolds σ D) : ClauseHolds σ R := by
   classical
-  match heq : (C, D, R) as
+  match (C, D, R) as
       (multiset (Literal V), multiset (Literal V), multiset (Literal V)) with
   | (pos $p :: $xs, neg #p :: $ys, #(xs + ys)) =>
     subst C D R
@@ -152,7 +156,7 @@ w のその位置で閉じた歩道を挟み込むと、s から t への新し�
 二つの対象を同時に照合する。
 
 ```egison
-match heq : (w, loop) as (list A, list A) with
+match (w, loop) as (list A, list A) with
 | ($pre ++ #v :: $post, #v :: $mid ++ #v :: []) =>
 ```
 
@@ -170,7 +174,7 @@ match heq : (w, loop) as (list A, list A) with
 theorem insert_closed_walk (E : A → A → Prop) (s t v : A) (w loop : List A)
     (hw : Walk E s t w) (hc : Walk E v v loop) (hv : v ∈ w) :
     ∃ r, Inserted v w loop r ∧ Walk E s t r ∧ r.length + 1 = w.length + loop.length := by
-  match heq : (w, loop) as (list A, list A) with
+  match (w, loop) as (list A, list A) with
   | ($pre ++ #v :: $post, #v :: []) =>
     subst w loop
     refine ⟨pre ++ v :: post, ⟨pre, post, rfl, Or.inl ⟨rfl, rfl⟩⟩, hw, ?_⟩
@@ -268,10 +272,10 @@ M_{\sigma(j),k}M_{\sigma(i),k}
 theorem noninjective_cancel {M : Matrix I J R} {N : Matrix J I R} {p : I → J}
     (hp : ¬Injective p) :
     (∑ σ : Perm I, ε σ * ∏ x, M (σ x) (p x) * N (p x) x) = 0 := by
-  match h : p as multiset (I → J) with
+  match p as multiset (I → J) with
   | $i → $k :: $j → #k :: _ =>
-    have hij : i ≠ j := h.1
-    have hpij : p i = p j := h.2.1.trans h.2.2.symm
+    have hij : i ≠ j := by assumption
+    have hpij : p i = p j := by simp_all
     exact
       sum_involution (fun σ _ => σ * Equiv.swap i j)
         (fun σ _ => by
@@ -380,11 +384,11 @@ aᵢ から bⱼ への道の重みの総和を行列 M の (i,j) 成分に置�
 提案版は、同じ選択のあとに二つの道の頂点列を同時に分解する。
 
 ```egison
-match cuts : ((sp.2.paths i).vertices, (sp.2.paths j).vertices) as (list V, list V) with
+match ((sp.2.paths i).vertices, (sp.2.paths j).vertices) as (list V, list V) with
 | ($preI ++ #v :: $tailI, $preJ ++ #v :: $tailJ) =>
   -- 腕では、二つの分解の等式から交換後の道を構成する。
   let exchanged := exchangeTailsOfCuts
-    (sp.2.paths i) (sp.2.paths j) v preI tailI preJ tailJ cuts.1 cuts.2
+    (sp.2.paths i) (sp.2.paths j) v preI tailI preJ tailJ (by assumption) (by assumption)
 exhaustive by ⟨List.mem_iff_append.mp hvi, List.mem_iff_append.mp hvj⟩
 ```
 
@@ -448,10 +452,10 @@ theorem euler_circuit_iff (s : V) :
 提案版の `walk G` は、その切断と「未使用の辺が v につながる」という条件を一緒に返す。
 
 ```egison
-match h : p as walk G with
+match p as walk G with
 | $pre ++ $v :: $post where ∃ w, G.Adj v w ∧ s(v, w) ∉ p.edges =>
-  have hsplit : pre.append post = p := h.1
-  obtain ⟨w, hw, he⟩ := h.2
+  have hsplit : pre.append post = p := by assumption
+  obtain ⟨w, hw, he⟩ : ∃ w, G.Adj v w ∧ s(v, w) ∉ p.edges := by assumption
   -- 残りのグラフで v から始まる閉じた歩道 q を作り、pre、q、post を接続する。
 exhaustive by insertion_site p reach hnot hp
 ```

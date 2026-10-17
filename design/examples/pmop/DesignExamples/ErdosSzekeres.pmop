@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
 import DesignExamples.Common
 
@@ -36,24 +37,24 @@ theorem erdos_szekeres_five {A : Type*} [LinearOrder A]
     exact e.symm.lt_iff_lt
   obtain ⟨i, j, k, hij, hjk, hmono⟩ := finite_case g hg
   rcases hmono with hinc | hdec
-  · exact Or.inl ⟨i, f i, j, f j, k, f k⟩ by
-      exact ⟨hij, hjk, rfl, rfl, rfl, (hlt i j).mp hinc.1, (hlt j k).mp hinc.2⟩
-  · exact Or.inr ⟨i, f i, j, f j, k, f k⟩ by
-      exact ⟨hij, hjk, rfl, rfl, rfl, (hlt j i).mp hdec.2, (hlt k j).mp hdec.1⟩
+  · have : f i < f j := (hlt i j).mp hinc.1
+    have : f j < f k := (hlt j k).mp hinc.2
+    exact Or.inl ⟨i, f i, j, f j, k, f k⟩
+  · have : f j < f i := (hlt j i).mp hdec.2
+    have : f k < f j := (hlt k j).mp hdec.1
+    exact Or.inr ⟨i, f i, j, f j, k, f k⟩
 
 theorem ordinary_five {A : Type*} [LinearOrder A]
     (f : Fin 5 → A) (hf : Function.Injective f) : ∃ i j k, Triple f i j k := by
-  match h : f as list (Fin 5 → A) with
+  match f as list (Fin 5 → A) with
   | _ ++ ($i → $x) :: _ ++ ($j → ($y & ?(x < y))) ::
       _ ++ ($k → ($z & ?(y < z))) :: _ =>
-    rcases h with ⟨hij, hjk, hi, hj, hk, hxy, hyz⟩
-    exact ⟨i, j, k, hij, hjk, Or.inl ⟨by simpa [hi, hj] using hxy,
-      by simpa [hj, hk] using hyz⟩⟩
+    exact ⟨i, j, k, by assumption, by assumption,
+      Or.inl (by constructor <;> simp_all)⟩
   | _ ++ ($i → $x) :: _ ++ ($j → ($y & ?(y < x))) ::
       _ ++ ($k → ($z & ?(z < y))) :: _ =>
-    rcases h with ⟨hij, hjk, hi, hj, hk, hyx, hzy⟩
-    exact ⟨i, j, k, hij, hjk, Or.inr ⟨by simpa [hj, hk] using hzy,
-      by simpa [hi, hj] using hyx⟩⟩
+    exact ⟨i, j, k, by assumption, by assumption,
+      Or.inr (by constructor <;> simp_all)⟩
   exhaustive by erdos_szekeres_five f hf
 
 -- Any longer sequence inherits the result by using its first five positions.
@@ -79,7 +80,7 @@ theorem es_two {A : Type*} [LinearOrder A] (f : Fin 2 → A) (hf : Function.Inje
     f matches ((_ → $x) :: (_ → ($y & ?(x < y))) :: _)
       | ((_ → $x) :: (_ → ($y & ?(y < x))) :: _) as list (Fin 2 → A) := by
   rcases lt_or_gt_of_ne (hf.ne (by decide : (0 : Fin 2) ≠ 1)) with h | h
-  · exact Or.inl ⟨f 0, f 1⟩ by exact ⟨rfl, rfl, h⟩
-  · exact Or.inr ⟨f 0, f 1⟩ by exact ⟨rfl, rfl, h⟩
+  · exact Or.inl ⟨f 0, f 1⟩
+  · exact Or.inr ⟨f 0, f 1⟩
 
 end DesignExamples.ErdosSzekeres

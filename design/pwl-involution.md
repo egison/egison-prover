@@ -1,5 +1,9 @@
 # 固定点のない対合：パターンによる分解を使う帰納法
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 有限集合の要素数が偶数であることを、関係を持つ2要素と残りを
 パターンで取り出して証明する。定理の結論は数値的な性質であり、
 証明の途中の分解にパターンを使う例である。
@@ -62,13 +66,13 @@ theorem involution_card_even (S : Finset A) (σ : A → A) (h : Conditions S σ)
     2 ∣ S.card := by
   induction S using Finset.strongInduction with
   | H S ih =>
-    match heq : S.val as multiset A with
+    match S.val as multiset A with
     | [] =>
-      have hs : S = ∅ := Finset.val_injective heq
+      have hs : S = ∅ := Finset.val_injective (by assumption)
       subst S
       simp
     | $x :: #(σ x) :: $R =>
-      obtain ⟨hx, _, _, hR⟩ := pair_evidence S σ x R heq
+      have hx : x ∈ S := by simp_all
       obtain ⟨hlt, hrest, hcard⟩ := pair_remainder S σ x hx h
       obtain ⟨k, hk⟩ := ih (remainder S σ x) hlt hrest
       exact ⟨k + 1, by omega⟩

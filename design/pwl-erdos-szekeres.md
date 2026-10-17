@@ -1,5 +1,9 @@
 # Erdős–Szekeres の5項の場合
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 任意の線形順序における相異なる5項は、長さ3の狭義単調増加部分列または狭義単調減少部分列を持つ。
 整数・実数もこの型の条件を満たす。出現位置の前後関係を保つリストパターンを使う。
 
@@ -67,10 +71,12 @@ theorem erdos_szekeres_five {A : Type*} [LinearOrder A]
     exact e.symm.lt_iff_lt
   obtain ⟨i, j, k, hij, hjk, hmono⟩ := finite_case g hg
   rcases hmono with hinc | hdec
-  · exact Or.inl ⟨i, f i, j, f j, k, f k⟩ by
-      exact ⟨hij, hjk, rfl, rfl, rfl, (hlt i j).mp hinc.1, (hlt j k).mp hinc.2⟩
-  · exact Or.inr ⟨i, f i, j, f j, k, f k⟩ by
-      exact ⟨hij, hjk, rfl, rfl, rfl, (hlt j i).mp hdec.2, (hlt k j).mp hdec.1⟩
+  · have : f i < f j := (hlt i j).mp hinc.1
+    have : f j < f k := (hlt j k).mp hinc.2
+    exact Or.inl ⟨i, f i, j, f j, k, f k⟩
+  · have : f j < f i := (hlt j i).mp hdec.2
+    have : f k < f j := (hlt k j).mp hdec.1
+    exact Or.inr ⟨i, f i, j, f j, k, f k⟩
 ```
 
 `finite_case` は `Fin 5 → Fin 5` の有限の主張を `decide` で証明する。

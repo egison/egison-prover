@@ -1,6 +1,7 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案記法。forallMatch は全称命題であり，列挙を実行しない。
 -- ConfigurationRulesCommon が共通の関係，変換，補助証明を定める。
--- introMatch は束縛値と関係の証拠を任意に導入する。
+-- introMatch は任意の束縛値を導入し，その条件を暗黙の証明環境に保持する。
 import DesignExamples.ConfigurationRulesCommon
 
 namespace DesignExamples.PatternStyle.ConfigurationRules
@@ -12,7 +13,7 @@ theorem cancel_all (w : List G) :
     forallMatch w as list G with
     | $pre ++ $g :: #(g⁻¹) :: $post =>
       (pre ++ post).prod = w.prod ∧ (pre ++ post).length + 2 = w.length := by
-  introMatch h
+  introMatch
   subst w
   constructor
   · exact (DesignExamples.GroupWords.cancel_pair pre g post).symm
@@ -26,7 +27,7 @@ def CancelsTo (w r : List G) : Prop :=
     as (list G, list G)
 
 theorem cancelsTo_good {w r : List G} (h : CancelsTo w r) : DesignExamples.ConfigurationRules.CancelGood w r := by
-  match hc : (w, r) as (list G, list G) with
+  match (w, r) as (list G, list G) with
   | ($pre ++ $g :: #(g⁻¹) :: $post, #(pre ++ post)) =>
     subst w r
     exact DesignExamples.ConfigurationRules.cancel_all_explicit (pre ++ g :: g⁻¹ :: post) pre g post rfl
@@ -35,7 +36,7 @@ theorem cancelsTo_good {w r : List G} (h : CancelsTo w r) : DesignExamples.Confi
 -- 変換は選択済みのデータを受け取る。cut が単一腕のデータ網羅性を与える。
 -- 存在命題 CancelsTo から暗黙に値を選ぶ操作は含めない。
 def cancelAt (w : List G) (cut : {c // DesignExamples.ConfigurationRules.InverseMatch w c}) : {r // DesignExamples.ConfigurationRules.CancelGood w r} := by
-  match h : w as list G with
+  match w as list G with
   | $pre ++ $g :: #(g⁻¹) :: $post =>
     refine ⟨pre ++ post, ?_, ?_⟩
     · subst w
@@ -54,9 +55,9 @@ theorem all_equal_cuts_join (w : List A) :
     forallMatch (w, w) as (list A, list A) with
     | ($p ++ $a :: #a :: $s, $q ++ $b :: #b :: $t) =>
       DesignExamples.AdjacentCancellation.Join (p ++ s) (q ++ t) := by
-  introMatch h
+  introMatch
   exact DesignExamples.AdjacentCancellation.local_confluence
-    ⟨p, a, s, h.1, rfl⟩ ⟨q, b, t, h.2, rfl⟩
+    ⟨p, a, s, by assumption, rfl⟩ ⟨q, b, t, by assumption, rfl⟩
 end Joining
 
 section Tails
@@ -77,9 +78,9 @@ theorem tail_swaps_all (hac : D.IsAcyclic)
         (pq.1.vertices, pq.2.vertices) = (preI ++ v :: tailJ, preJ ++ v :: tailI) ∧
         pq.1.start = p.start ∧ pq.1.finish = q.finish ∧
         pq.2.start = q.start ∧ pq.2.finish = p.finish := by
-  introMatch h
+  introMatch
   let cut : {c // DesignExamples.ConfigurationRules.TailMatch (p.vertices, q.vertices) c} :=
-    ⟨⟨preI, v, tailI, preJ, tailJ⟩, Prod.ext h.1 h.2⟩
+    ⟨⟨preI, v, tailI, preJ, tailJ⟩, by apply Prod.ext <;> assumption⟩
   exact ⟨DesignExamples.ConfigurationRules.swapPathsAt p q cut, DesignExamples.ConfigurationRules.swapPathsAt_vertex_form hac p q cut,
     DesignExamples.ConfigurationRules.swapPathsAt_endpoints p q cut⟩
 

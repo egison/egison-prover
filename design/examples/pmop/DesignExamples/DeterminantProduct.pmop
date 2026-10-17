@@ -7,6 +7,7 @@ Adapted from Mathlib v4.31.0, LinearAlgebra/Matrix/Determinant/Basic.lean:
 the cancellation lemma also allows a rectangular pair of matrices, and the
 selection of two inputs with the same output is compared with a pattern.
 -/
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 import DesignExamples.DeterminantProductCommon
 
 namespace DesignExamples.DeterminantProduct
@@ -20,10 +21,10 @@ local notation "ε " σ:arg => ((sign σ : ℤ) : R)
 theorem noninjective_cancel {M : Matrix I J R} {N : Matrix J I R} {p : I → J}
     (hp : ¬Injective p) :
     (∑ σ : Perm I, ε σ * ∏ x, M (σ x) (p x) * N (p x) x) = 0 := by
-  match h : p as multiset (I → J) with
+  match p as multiset (I → J) with
   | $i → $k :: $j → #k :: _ =>
-    have hij : i ≠ j := h.1
-    have hpij : p i = p j := h.2.1.trans h.2.2.symm
+    have hij : i ≠ j := by assumption
+    have hpij : p i = p j := by simp_all
     exact
       sum_involution (fun σ _ => σ * Equiv.swap i j)
         (fun σ _ => by

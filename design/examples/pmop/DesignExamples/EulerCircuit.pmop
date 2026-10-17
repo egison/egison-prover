@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 import DesignExamples.EulerCircuitCommon
 
 set_option backward.isDefEq.respectTransparency false
@@ -16,10 +17,10 @@ theorem euler_circuit (s : V) (even_degree : ∀ v, Even (G.degree v))
   obtain ⟨p, hp, hmax⟩ := closed_trail (G := G) even_degree s
   refine ⟨p, ?_⟩
   by_contra hnot
-  match h : p as walk G with
+  match p as walk G with
   | $pre ++ $v :: $post where ∃ w, G.Adj v w ∧ s(v, w) ∉ p.edges =>
-    have hsplit : pre.append post = p := h.1
-    obtain ⟨w, hw, he⟩ := h.2
+    have hsplit : pre.append post = p := by assumption
+    obtain ⟨w, hw, he⟩ : ∃ w, G.Adj v w ∧ s(v, w) ∉ p.edges := by assumption
     let H := G.deleteEdges p.edgeSet
     have heven : ∀ x, Even (H.degree x) := by
       simpa only [H, SimpleGraph.degree, SimpleGraph.neighborFinset, Set.toFinset_card,

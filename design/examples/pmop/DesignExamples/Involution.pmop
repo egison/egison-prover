@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
 import DesignExamples.Common
 
@@ -61,20 +62,20 @@ theorem pair_or_empty (S : Finset A) (σ : A → A)
     S.val matches [] | $x :: #(σ x) :: $R as multiset A := by
   obtain rfl | ⟨x, hx⟩ := S.eq_empty_or_nonempty
   · exact Or.inl rfl
-  · exact Or.inr ⟨x, (remainder S σ x).val,
-      take_two S x (σ x) hx (hclosed x hx) (hfixed x hx)⟩
+  · have := take_two S x (σ x) hx (hclosed x hx) (hfixed x hx)
+    exact Or.inr ⟨x, (remainder S σ x).val⟩
 
 theorem involution_card_even (S : Finset A) (σ : A → A) (h : Conditions S σ) :
     2 ∣ S.card := by
   induction S using Finset.strongInduction with
   | H S ih =>
-    match heq : S.val as multiset A with
+    match S.val as multiset A with
     | [] =>
-      have hs : S = ∅ := Finset.val_injective heq
+      have hs : S = ∅ := Finset.val_injective (by assumption)
       subst S
       simp
     | $x :: #(σ x) :: $R =>
-      obtain ⟨hx, _, _, hR⟩ := pair_evidence S σ x R heq
+      have hx : x ∈ S := by simp_all
       obtain ⟨hlt, hrest, hcard⟩ := pair_remainder S σ x hx h
       obtain ⟨k, hk⟩ := ih (remainder S σ x) hlt hrest
       exact ⟨k + 1, by omega⟩
@@ -86,13 +87,13 @@ theorem involution_sum_zero {B : Type*} [AddCommGroup B]
     ∑ x ∈ S, w x = 0 := by
   induction S using Finset.strongInduction with
   | H S ih =>
-    match heq : S.val as multiset A with
+    match S.val as multiset A with
     | [] =>
-      have hs : S = ∅ := Finset.val_injective heq
+      have hs : S = ∅ := Finset.val_injective (by assumption)
       subst S
       simp
     | $x :: #(σ x) :: $R =>
-      obtain ⟨hx, _, _, hR⟩ := pair_evidence S σ x R heq
+      have hx : x ∈ S := by simp_all
       obtain ⟨hlt, hrest, _⟩ := pair_remainder S σ x hx h
       have hi := ih (remainder S σ x) hlt hrest
         (fun z hz => hw z (Finset.mem_of_mem_erase (Finset.mem_of_mem_erase hz)))

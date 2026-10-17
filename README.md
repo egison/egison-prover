@@ -7,6 +7,12 @@ A proof language for describing structural selections and decompositions with pa
 The proposed language uses patterns both in theorem statements and within proofs.
 Matching extracts values together with evidence of their relations, for use in
 equality reasoning, induction, and applications of other theorems.
+Proposed examples retain pattern conditions implicitly and supply only binding
+values when proving a matching proposition. Obtaining conditions from matcher
+definitions, combining them, and constructing the required proof terms remains
+to be designed; the examples assume this mechanism. The
+[shared policy and design history](design/implicit-conditions.md) distinguish
+this premise from the checked explicit Lean proofs.
 See the [design overview](design/overview.md) and the
 [current design review](design/review.md).
 Examples using patterns inside equality proofs and induction are described in

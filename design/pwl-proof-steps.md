@@ -1,5 +1,9 @@
 # 証明の途中で使うパターン：等式変形と帰納法の例
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 パターンによる選択・分解を、定理の主張と証明の途中の推論に使う。
 主張そのものを `matches` 命題にする中心例は [設計概要](overview.md) にある。
 ここでは、等式変形や帰納法の各段階での使い方を考える。
@@ -23,7 +27,8 @@
 
 `$x` は値を束縛し、`#e` は式 e との等式を要求する。
 `::` は要素と残りへの分解、`++` は列を前後に分割するパターンである。
-`match h : …` は分解の証拠を h として受け取る。
+`match …` は分解の条件を暗黙に保持する．`subst` や後続の補題はその等式を使い，
+必要な事実は証拠の成分の順序ではなく命題の型で指定する．
 記法・依存関係・検査方法は [コードの一覧と仕様](examples/README.md) に記す。
 `.pmop` の直接の検査は処理系への実装が必要である。
 
@@ -220,9 +225,9 @@ theorem exists_reduced (w : List G) :
   induction n using Nat.strong_induction_on with
   | h n ih =>
     intro w hn
-    match heq : w as list G with
+    match w as list G with
     | !($pre ++ $g :: #(g⁻¹) :: $post) =>
-      exact ⟨w, heq, rfl, le_rfl⟩
+      exact ⟨w, by assumption, rfl, le_rfl⟩
     | $pre ++ $g :: #(g⁻¹) :: $post =>
       subst w
       have hlt : (pre ++ post).length < n := by simp_all; omega

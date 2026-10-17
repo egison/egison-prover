@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
 import DesignExamples.Common
 
@@ -46,9 +47,10 @@ theorem pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6) :
   have px := Finset.mem_filter.mp hx
   have py := Finset.mem_filter.mp hy
   have pz := Finset.mem_filter.mp hz
-  exact ⟨x, c, y, z, (Finset.mem_erase.mp px.1).1.symm,
-    (Finset.mem_erase.mp py.1).1.symm, (Finset.mem_erase.mp pz.1).1.symm,
-    hxy, hxz, hyz, px.2, py.2, pz.2⟩
+  have : v ≠ x := (Finset.mem_erase.mp px.1).1.symm
+  have : v ≠ y := (Finset.mem_erase.mp py.1).1.symm
+  have : v ≠ z := (Finset.mem_erase.mp pz.1).1.symm
+  exact ⟨x, c, y, z⟩
 
 theorem triangle_cases (edge : Sym2 (Fin 6) → Color) (x y z : Fin 6) (c : Color) :
     edge s(x, y) = c ∨ edge s(y, z) = c ∨ edge s(x, z) = c ∨
@@ -78,24 +80,20 @@ theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
     edge matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
       as multiset (Sym2 (Fin 6) → Color) := by
   let v : Fin 6 := 0
-  match hstar : edge as multiset (Sym2 (Fin 6) → Color) with
+  match edge as multiset (Sym2 (Fin 6) → Color) with
   | (#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ =>
-    rcases hstar with ⟨hvx, hvy, hvz, hxy, hxz, hyz, evx, evy, evz⟩
-    match htri : edge as multiset (Sym2 (Fin 6) → Color) with
-    | (($p & (#x | #y | #z)), ($q & (#x | #y | #z))) → #c :: _ =>
-      rcases htri with ⟨hp, hq, hpq, epq⟩
-      have hvp : v ≠ p := by rcases hp with rfl | rfl | rfl <;> assumption
-      have hvq : v ≠ q := by rcases hq with rfl | rfl | rfl <;> assumption
-      have evp : edge s(v, p) = c := by rcases hp with rfl | rfl | rfl <;> assumption
-      have evq : edge s(v, q) = c := by rcases hq with rfl | rfl | rfl <;> assumption
-      exact ⟨v, p, c, q⟩ by exact ⟨hvp, hpq, hvq, evp, epq, by simpa [Sym2.eq_swap] using evq⟩
-    | (#x, #y) → #(c.opposite) :: (#y, #z) → #(c.opposite) ::
-        (#z, #x) → #(c.opposite) :: _ =>
-      rcases htri with ⟨exy, eyz, ezx⟩
-      exact ⟨x, y, c.opposite, z⟩ by
-        exact ⟨hxy, hyz, hxz, exy, eyz, ezx⟩
-    exhaustive by triangle_two_color_exhaustive edge c x y z hxy hyz hxz
-  exhaustive by pigeonhole_edges_at edge v
+    match edge as multiset (Sym2 (Fin 6) → Color) with
+    | (($p & (#x | #y | #z)),
+       ($q & (#x | #y | #z))) → #c :: _ =>
+      exact ⟨v, p, c, q⟩
+    | (#x, #y) → #(c.opposite) ::
+      (#y, #z) → #(c.opposite) ::
+      (#z, #x) → #(c.opposite) :: _ =>
+      exact ⟨x, y, c.opposite, z⟩
+    exhaustive by
+      triangle_two_color_exhaustive edge c x y z
+  exhaustive by
+    pigeonhole_edges_at edge v
 
 def pentagon (x y : Fin 5) : Color :=
   if (x.val + 1) % 5 = y.val ∨ (y.val + 1) % 5 = x.val then .red else .blue
@@ -111,9 +109,14 @@ theorem pattern_iff_ordinary (edge : Sym2 (Fin 6) → Color) :
     (edge matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
       as multiset (Sym2 (Fin 6) → Color)) ↔ ∃ x y z, Monochromatic edge x y z := by
   constructor
-  · rintro ⟨x, y, c, z, hxy, hyz, hxz, exy, eyz, ezx⟩
-    exact ⟨x, y, z, hxy, hyz, hxz, c, exy, eyz, by simpa [Sym2.eq_swap] using ezx⟩
+  · intro h
+    match edge as multiset (Sym2 (Fin 6) → Color) with
+    | ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _ =>
+      refine ⟨x, y, z, by assumption, by assumption, by assumption,
+        c, by assumption, by assumption, ?_⟩
+      simpa [Sym2.eq_swap] using ‹edge s(z, x) = c›
+    exhaustive by h
   · rintro ⟨x, y, z, hxy, hyz, hxz, c, exy, eyz, exz⟩
-    exact ⟨x, y, c, z, hxy, hyz, hxz, exy, eyz, by simpa [Sym2.eq_swap] using exz⟩
+    exact ⟨x, y, c, z⟩
 
 end DesignExamples.Ramsey

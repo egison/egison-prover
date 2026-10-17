@@ -1,5 +1,9 @@
 # 一般の鳩の巣原理
 
+この文書の提案例は，マッチャー定義からパターンの条件を得て暗黙に使えることを前提とする．
+その具体的な機構は今後設計する．共通の方針と検査用の Lean 版との区別は
+[パターンの条件を暗黙に使う方針](implicit-conditions.md) に記す．
+
 有限の型 A,B について |B|<|A| なら、任意の関数 f:A→B は異なる2入力で同じ値を持つ。
 関数のグラフの異なる2出現と同じ出力を、非線形パターンで選ぶ。
 
@@ -32,7 +36,7 @@ theorem collision {A B : Type*} [Fintype A] [Fintype B] (f : A → B)
     (h : Fintype.card B < Fintype.card A) :
     f matches $x → $v :: $y → #v :: _ as multiset (A → B) := by
   obtain ⟨x, y, hxy, heq⟩ := Fintype.exists_ne_map_eq_of_card_lt f h
-  exact ⟨x, f x, y⟩ by exact ⟨hxy, rfl, heq.symm⟩
+  exact ⟨x, f x, y⟩
 ```
 
 `list_collision` は状態数より長いリストに対する重複位置の分解も証明する。

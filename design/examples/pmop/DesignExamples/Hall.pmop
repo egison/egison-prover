@@ -1,3 +1,4 @@
+-- パターンの条件をmatcher定義から得て暗黙に保持する機構は未設計であり，ここでは前提とする。
 -- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
 import DesignExamples.Common
 
@@ -89,8 +90,8 @@ theorem hall (E : X → Y → Prop) [DecidableRel E]
     (h : ¬(E matches $S ⤳ $T where T.card < S.card as bipartite_graph X Y)) :
     E matches $f as matching_of E := by
   have hc : HallCondition E := (hall_iff_no_bad_pair E).mpr h
-  match hf : E as matching_of E with
-  | $f => exact ⟨f⟩ by exact hf
+  match E as matching_of E with
+  | $f => exact ⟨f⟩
   exhaustive by hall_from_card E hc
 
 end DesignExamples.Hall
