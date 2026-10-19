@@ -4,20 +4,20 @@ import DesignExamples.PatternStyle.Common
 
 namespace DesignExamples.PatternStyle.Ramsey
 
-def Monochromatic {n : Nat} (edge : Sym2 (Fin n) → Color) (x y z : Fin n) : Prop :=
+def Monochromatic {n : Nat} (coloring : Sym2 (Fin n) → Color) (x y z : Fin n) : Prop :=
   x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
-    ∃ c, edge s(x, y) = c ∧ edge s(y, z) = c ∧ edge s(x, z) = c
+    ∃ c, coloring s(x, y) = c ∧ coloring s(y, z) = c ∧ coloring s(x, z) = c
 
-def neighbors (edge : Sym2 (Fin 6) → Color) (v : Fin 6) (c : Color) : Finset (Fin 6) :=
-  (Finset.univ.erase v).filter (fun w => edge s(v, w) = c)
+def neighbors (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) (c : Color) : Finset (Fin 6) :=
+  (Finset.univ.erase v).filter (fun w => coloring s(v, w) = c)
 
-theorem neighbors_total (edge : Sym2 (Fin 6) → Color) (v : Fin 6) :
-    (neighbors edge v .red).card + (neighbors edge v .blue).card = 5 := by
-  have hpartition : neighbors edge v .red ∪ neighbors edge v .blue = Finset.univ.erase v := by
+theorem neighbors_total (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) :
+    (neighbors coloring v .red).card + (neighbors coloring v .blue).card = 5 := by
+  have hpartition : neighbors coloring v .red ∪ neighbors coloring v .blue = Finset.univ.erase v := by
     ext w
     simp only [neighbors, Finset.mem_union, Finset.mem_filter]
-    cases edge s(v, w) <;> simp
-  have hdisjoint : Disjoint (neighbors edge v .red) (neighbors edge v .blue) := by
+    cases coloring s(v, w) <;> simp
+  have hdisjoint : Disjoint (neighbors coloring v .red) (neighbors coloring v .blue) := by
     rw [Finset.disjoint_left]
     intro w hr hb
     have hr' := (Finset.mem_filter.mp hr).2
@@ -27,22 +27,22 @@ theorem neighbors_total (edge : Sym2 (Fin 6) → Color) (v : Fin 6) :
   rw [← Finset.card_union_of_disjoint hdisjoint, hpartition]
   simp
 
-theorem pigeonhole_edges (edge : Sym2 (Fin 6) → Color) (v : Fin 6) :
-    ∃ c, 3 ≤ (neighbors edge v c).card := by
-  have ht := neighbors_total edge v
-  by_cases hr : 3 ≤ (neighbors edge v .red).card
+theorem pigeonhole_edges (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) :
+    ∃ c, 3 ≤ (neighbors coloring v c).card := by
+  have ht := neighbors_total coloring v
+  by_cases hr : 3 ≤ (neighbors coloring v .red).card
   · exact ⟨.red, hr⟩
   · exact ⟨.blue, by omega⟩
 
-def Star (edge : Sym2 (Fin 6) → Color) (v x y z : Fin 6) (c : Color) : Prop :=
+def Star (coloring : Sym2 (Fin 6) → Color) (v x y z : Fin 6) (c : Color) : Prop :=
   v ≠ x ∧ v ≠ y ∧ v ≠ z ∧ x ≠ y ∧ x ≠ z ∧ y ≠ z ∧
-    edge s(v, x) = c ∧ edge s(v, y) = c ∧ edge s(v, z) = c
+    coloring s(v, x) = c ∧ coloring s(v, y) = c ∧ coloring s(v, z) = c
 
-theorem pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6) :
-    ∃ x c y z, Star edge v x y z c := by
-  obtain ⟨c, hc⟩ := pigeonhole_edges edge v
+theorem pigeonhole_edges_at (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) :
+    ∃ x c y z, Star coloring v x y z c := by
+  obtain ⟨c, hc⟩ := pigeonhole_edges coloring v
   obtain ⟨x, y, z, hx, hy, hz, hxy, hxz, hyz⟩ :=
-    Finset.two_lt_card_iff.mp (by omega : 2 < (neighbors edge v c).card)
+    Finset.two_lt_card_iff.mp (by omega : 2 < (neighbors coloring v c).card)
   have px := Finset.mem_filter.mp hx
   have py := Finset.mem_filter.mp hy
   have pz := Finset.mem_filter.mp hz
@@ -50,42 +50,42 @@ theorem pigeonhole_edges_at (edge : Sym2 (Fin 6) → Color) (v : Fin 6) :
     (Finset.mem_erase.mp py.1).1.symm, (Finset.mem_erase.mp pz.1).1.symm,
     hxy, hxz, hyz, px.2, py.2, pz.2⟩
 
-theorem triangle_cases (edge : Sym2 (Fin 6) → Color) (x y z : Fin 6) (c : Color) :
-    edge s(x, y) = c ∨ edge s(y, z) = c ∨ edge s(x, z) = c ∨
-      (edge s(x, y) = c.opposite ∧ edge s(y, z) = c.opposite ∧
-        edge s(x, z) = c.opposite) := by
-  rcases color_cases (edge s(x, y)) c with hxy | hxy
+theorem triangle_cases (coloring : Sym2 (Fin 6) → Color) (x y z : Fin 6) (c : Color) :
+    coloring s(x, y) = c ∨ coloring s(y, z) = c ∨ coloring s(x, z) = c ∨
+      (coloring s(x, y) = c.opposite ∧ coloring s(y, z) = c.opposite ∧
+        coloring s(x, z) = c.opposite) := by
+  rcases color_cases (coloring s(x, y)) c with hxy | hxy
   · exact Or.inl hxy
-  rcases color_cases (edge s(y, z)) c with hyz | hyz
+  rcases color_cases (coloring s(y, z)) c with hyz | hyz
   · exact Or.inr (Or.inl hyz)
-  rcases color_cases (edge s(x, z)) c with hxz | hxz
+  rcases color_cases (coloring s(x, z)) c with hxz | hxz
   · exact Or.inr (Or.inr (Or.inl hxz))
   exact Or.inr (Or.inr (Or.inr ⟨hxy, hyz, hxz⟩))
 
-theorem triangle_two_color_exhaustive (edge : Sym2 (Fin 6) → Color)
+theorem triangle_two_color_exhaustive (coloring : Sym2 (Fin 6) → Color)
     (c : Color) (x y z : Fin 6) (hxy : x ≠ y) (hyz : y ≠ z) (hxz : x ≠ z) :
     (∃ p q, (p = x ∨ p = y ∨ p = z) ∧ (q = x ∨ q = y ∨ q = z) ∧
-      p ≠ q ∧ edge s(p, q) = c) ∨
-    (edge s(x, y) = c.opposite ∧ edge s(y, z) = c.opposite ∧
-      edge s(z, x) = c.opposite) := by
-  rcases triangle_cases edge x y z c with h | h | h | h
+      p ≠ q ∧ coloring s(p, q) = c) ∨
+    (coloring s(x, y) = c.opposite ∧ coloring s(y, z) = c.opposite ∧
+      coloring s(z, x) = c.opposite) := by
+  rcases triangle_cases coloring x y z c with h | h | h | h
   · exact Or.inl ⟨x, y, Or.inl rfl, Or.inr (Or.inl rfl), hxy, h⟩
   · exact Or.inl ⟨y, z, Or.inr (Or.inl rfl), Or.inr (Or.inr rfl), hyz, h⟩
   · exact Or.inl ⟨x, z, Or.inl rfl, Or.inr (Or.inr rfl), hxz, h⟩
   · exact Or.inr ⟨h.1, h.2.1, by simpa [Sym2.eq_swap] using h.2.2⟩
 
-theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
+theorem ramsey_six (coloring : Sym2 (Fin 6) → Color) :
     ∃ x y c z, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
-      edge s(x, y) = c ∧ edge s(y, z) = c ∧ edge s(z, x) = c := by
+      coloring s(x, y) = c ∧ coloring s(y, z) = c ∧ coloring s(z, x) = c := by
   let v : Fin 6 := 0
   obtain ⟨x, c, y, z, hvx, hvy, hvz, hxy, hxz, hyz, evx, evy, evz⟩ :=
-    pigeonhole_edges_at edge v
-  rcases triangle_two_color_exhaustive edge c x y z hxy hyz hxz with
+    pigeonhole_edges_at coloring v
+  rcases triangle_two_color_exhaustive coloring c x y z hxy hyz hxz with
     ⟨p, q, hp, hq, hpq, epq⟩ | ⟨exy, eyz, ezx⟩
   · have hvp : v ≠ p := by rcases hp with rfl | rfl | rfl <;> assumption
     have hvq : v ≠ q := by rcases hq with rfl | rfl | rfl <;> assumption
-    have evp : edge s(v, p) = c := by rcases hp with rfl | rfl | rfl <;> assumption
-    have evq : edge s(v, q) = c := by rcases hq with rfl | rfl | rfl <;> assumption
+    have evp : coloring s(v, p) = c := by rcases hp with rfl | rfl | rfl <;> assumption
+    have evq : coloring s(v, q) = c := by rcases hq with rfl | rfl | rfl <;> assumption
     exact ⟨v, p, c, q, hvp, hpq, hvq, evp, epq, by simpa [Sym2.eq_swap] using evq⟩
   · exact ⟨x, y, c.opposite, z, hxy, hyz, hxz, exy, eyz, ezx⟩
 
@@ -99,9 +99,9 @@ theorem ramsey_five_counterexample : ¬ ∃ x y z, Monochromatic counterexample 
   unfold Monochromatic
   decide
 
-theorem pattern_iff_ordinary (edge : Sym2 (Fin 6) → Color) :
+theorem pattern_iff_ordinary (coloring : Sym2 (Fin 6) → Color) :
     (∃ x y c z, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
-      edge s(x, y) = c ∧ edge s(y, z) = c ∧ edge s(z, x) = c) ↔ ∃ x y z, Monochromatic edge x y z := by
+      coloring s(x, y) = c ∧ coloring s(y, z) = c ∧ coloring s(z, x) = c) ↔ ∃ x y z, Monochromatic coloring x y z := by
   constructor
   · rintro ⟨x, y, c, z, hxy, hyz, hxz, exy, eyz, ezx⟩
     exact ⟨x, y, z, hxy, hyz, hxz, c, exy, eyz, by simpa [Sym2.eq_swap] using ezx⟩

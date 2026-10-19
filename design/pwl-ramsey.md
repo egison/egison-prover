@@ -10,6 +10,7 @@
 `DecidableEq`（等式を判定する方法）と `Fintype`（全要素の有限列挙）を導出する。
 `Sym2 A` は順序を区別しない2要素の組であり、型自体は同じ要素の組も含む。
 辺を選ぶペアパターンでは両端の相異性を要求する。
+彩色関数はコードでは `coloring`，数式では $χ$ と表す．
 
 固定した頂点 v からの5辺には同色の3辺がある。
 その先の3頂点を x,y,z、色を c とすると、内部辺に c の辺があれば
@@ -31,23 +32,23 @@ Lean 版と、パターンの証拠を明示した Lean 版は Lean 4.31.0 / Mat
 ### Lean
 
 ```lean
-theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
-    ∃ x y z, Monochromatic edge x y z := by
+theorem ramsey_six (coloring : Sym2 (Fin 6) → Color) :
+    ∃ x y z, Monochromatic coloring x y z := by
   let v : Fin 6 := 0
-  obtain ⟨c, hc⟩ := pigeonhole_edges edge v
+  obtain ⟨c, hc⟩ := pigeonhole_edges coloring v
   obtain ⟨x, y, z, hx, hy, hz, hxy, hxz, hyz⟩ := Finset.two_lt_card_iff.mp (by omega :
-    2 < (neighbors edge v c).card)
+    2 < (neighbors coloring v c).card)
   have hvx := (Finset.mem_erase.mp (Finset.mem_filter.mp hx).1).1
   have hvy := (Finset.mem_erase.mp (Finset.mem_filter.mp hy).1).1
   have hvz := (Finset.mem_erase.mp (Finset.mem_filter.mp hz).1).1
   have evx := (Finset.mem_filter.mp hx).2
   have evy := (Finset.mem_filter.mp hy).2
   have evz := (Finset.mem_filter.mp hz).2
-  by_cases hcx : edge s(x, y) = c
+  by_cases hcx : coloring s(x, y) = c
   · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, c, evx, hcx, evy⟩
-  by_cases hcy : edge s(y, z) = c
+  by_cases hcy : coloring s(y, z) = c
   · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, c, evy, hcy, evz⟩
-  by_cases hcz : edge s(x, z) = c
+  by_cases hcz : coloring s(x, z) = c
   · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, c, evx, hcz, evz⟩
   exact ⟨x, y, z, hxy, hyz, hxz, c.opposite,
     Color.eq_opposite_of_ne hcx, Color.eq_opposite_of_ne hcy, Color.eq_opposite_of_ne hcz⟩
@@ -56,13 +57,13 @@ theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
 ### パターンマッチ指向スタイル
 
 ```egison
-theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
-    edge matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
+theorem ramsey_six (coloring : Sym2 (Fin 6) → Color) :
+    coloring matches ($x, $y) → $c :: (#y, $z) → #c :: (#z, #x) → #c :: _
       as multiset (Sym2 (Fin 6) → Color) := by
   let v : Fin 6 := 0
-  match edge as multiset (Sym2 (Fin 6) → Color) with
+  match coloring as multiset (Sym2 (Fin 6) → Color) with
   | (#v, $x) → $c :: (#v, $y) → #c :: (#v, $z) → #c :: _ =>
-    match edge as multiset (Sym2 (Fin 6) → Color) with
+    match coloring as multiset (Sym2 (Fin 6) → Color) with
     | (($p & (#x | #y | #z)),
        ($q & (#x | #y | #z))) → #c :: _ =>
       exact ⟨v, p, c, q⟩
@@ -71,16 +72,16 @@ theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
       (#z, #x) → #(c.opposite) :: _ =>
       exact ⟨x, y, c.opposite, z⟩
     exhaustive by
-      triangle_two_color_exhaustive edge c x y z
+      triangle_two_color_exhaustive coloring c x y z
   exhaustive by
-    pigeonhole_edges_at edge v
+    pigeonhole_edges_at coloring v
 ```
 
 ## 条件の暗黙の利用
 
 結論のパターン変数は初出順に `x,y,c,z` なので，第1の腕は `⟨v,p,c,q⟩`，
 第2の腕は `⟨x,y,c.opposite,z⟩` を与える．第1の腕では，外側の星の条件と
-`p,q ∈ {x,y,z}`，`p ≠ q`，`edge s(p,q) = c` を合わせ，
+`p,q ∈ {x,y,z}`，`p ≠ q`，`coloring s(p,q) = c` を合わせ，
 `v ≠ p`，`p ≠ q`，`v ≠ q` と三辺の色を示す．第2の腕では，
 外側の三頂点の相異性と，内側の反対色の三辺を使う．順序なしペアの対称性も使う．
 内側の網羅性補題が要求する三頂点の相異性は，外側の条件から補うものとする．
@@ -89,7 +90,7 @@ theorem ramsey_six (edge : Sym2 (Fin 6) → Color) :
 ## パターンが与える条件
 
 `$x` は値の束縛、`#e` は式 e との等式を要求するバリューパターンである。
-関数 `edge` を全入出力ペアの多重集合として観察する。
+関数 `coloring` を全入出力ペアの多重集合として観察する。
 外側のパターンが与える `Star` は、v と各頂点の相異性、
 x,y,z の相異性、v からの3辺の色が c であることを含む。
 網羅性補題 `pigeonhole_edges_at` は、色ごとの近傍の要素数の和が5であることを証明し、
@@ -104,7 +105,7 @@ x,y,z の相異性、v からの3辺の色が c であることを含む。
 多重集合の `::` は異なる出現を選ぶ。関数のグラフでは各入力辺が一度だけ現れ、
 共通端点を持つ辺の相異性から x,y,z の相異性を導ける。
 残りを束縛する場合の型は `Multiset (Sym2 (Fin 6) × Color)` である。
-内側の照合は元の `edge` を再び観察するため、残りを全関数として扱う処理は必要ない。
+内側の照合は元の `coloring` を再び観察するため、残りを全関数として扱う処理は必要ない。
 
 ## 配置と推論の対応
 
