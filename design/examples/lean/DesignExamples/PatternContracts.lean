@@ -1,14 +1,4 @@
 import DesignExamples.Ramsey
-import DesignExamples.Schur
-import DesignExamples.Pumping
-import DesignExamples.Hall
-import DesignExamples.Involution
-import DesignExamples.Permutations
-import DesignExamples.WalkPaths
-import DesignExamples.GroupWords
-import DesignExamples.Pigeonhole
-import DesignExamples.ErdosSzekeres
-import DesignExamples.LocalConfluence
 
 namespace DesignExamples.PatternContracts
 
@@ -45,29 +35,6 @@ theorem triangle_cases (edge : Sym2 (Fin 6) → Color) (x y z : Fin 6) (c : Colo
   · exact Or.inr (Or.inr (Or.inl hxz))
   exact Or.inr (Or.inr (Or.inr ⟨hxy, hyz, hxz⟩))
 
-theorem at_key {A B : Type*} (f : A → B) (a : A) : ∃ b, f a = b := ⟨f a, rfl⟩
-
-theorem pair_or_empty {A : Type*} [DecidableEq A] (S : Finset A) (σ : A → A)
-    (hclosed : ∀ x ∈ S, σ x ∈ S) (hfixed : ∀ x ∈ S, σ x ≠ x) :
-    S = ∅ ∨ ∃ x, x ∈ S ∧ σ x ∈ S ∧ σ x ≠ x ∧
-      S.val = x ::ₘ σ x ::ₘ (Involution.remainder S σ x).val := by
-  obtain hnil | ⟨x, hx⟩ := S.eq_empty_or_nonempty
-  · exact Or.inl hnil
-  have hy : σ x ∈ S.erase x := Finset.mem_erase.mpr ⟨hfixed x hx, hclosed x hx⟩
-  refine Or.inr ⟨x, hx, hclosed x hx, hfixed x hx, ?_⟩
-  exact take_two S x (σ x) hx (hclosed x hx) (hfixed x hx)
-
-theorem permutation_cases {A : Type*} (π : Equiv.Perm A) (a : A) :
-    π a = a ∨ ∃ b c, b ≠ a ∧ c ≠ a ∧ π a = b ∧ π c = a := by
-  classical
-  by_cases ha : π a = a
-  · exact Or.inl ha
-  refine Or.inr ⟨π a, π.symm a, ha, ?_, rfl, π.apply_symm_apply a⟩
-  intro he
-  have hp := π.apply_symm_apply a
-  rw [he] at hp
-  exact ha hp
-
 theorem triangle_two_color_exhaustive (edge : Sym2 (Fin 6) → Color)
     (c : Color) (x y z : Fin 6) (hxy : x ≠ y) (hyz : y ≠ z) (hxz : x ≠ z) :
     (∃ p q, (p = x ∨ p = y ∨ p = z) ∧ (q = x ∨ q = y ∨ q = z) ∧
@@ -79,5 +46,21 @@ theorem triangle_two_color_exhaustive (edge : Sym2 (Fin 6) → Color)
   · exact Or.inl ⟨y, z, Or.inr (Or.inl rfl), Or.inr (Or.inr rfl), hyz, h⟩
   · exact Or.inl ⟨x, z, Or.inl rfl, Or.inr (Or.inr rfl), hxz, h⟩
   · exact Or.inr ⟨h.1, h.2.1, by simpa [Sym2.eq_swap] using h.2.2⟩
+
+/-- Ordinary Lean with the same star and internal-edge coverage lemmas. -/
+theorem ramsey_six_shared_helpers (edge : Sym2 (Fin 6) → Color) :
+    ∃ x y z, Ramsey.Monochromatic edge x y z := by
+  let v : Fin 6 := 0
+  obtain ⟨x, c, y, z, hvx, hvy, hvz, hxy, hxz, hyz, evx, evy, evz⟩ :=
+    pigeonhole_edges_at edge v
+  rcases triangle_two_color_exhaustive edge c x y z hxy hyz hxz with
+    ⟨p, q, hp, hq, hpq, epq⟩ | ⟨exy, eyz, ezx⟩
+  · have hvp : v ≠ p := by rcases hp with rfl | rfl | rfl <;> assumption
+    have hvq : v ≠ q := by rcases hq with rfl | rfl | rfl <;> assumption
+    have evp : edge s(v, p) = c := by rcases hp with rfl | rfl | rfl <;> assumption
+    have evq : edge s(v, q) = c := by rcases hq with rfl | rfl | rfl <;> assumption
+    exact ⟨v, p, q, hvp, hpq, hvq, c, evp, epq, evq⟩
+  · exact ⟨x, y, z, hxy, hyz, hxz, c.opposite, exy, eyz,
+      by simpa [Sym2.eq_swap] using ezx⟩
 
 end DesignExamples.PatternContracts

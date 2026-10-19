@@ -1,5 +1,0 @@
--- 完全な提案ソース: design/examples/pmop/DesignExamples/Hall.pmop
--- 記法・依存関係・検査方法: design/examples/README.md
--- 処理系では未実装。モジュールの探索ルートは design/examples/pmop/。
-
-import DesignExamples.Hall
