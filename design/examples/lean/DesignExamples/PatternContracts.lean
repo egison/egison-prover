@@ -49,7 +49,8 @@ theorem triangle_two_color_exhaustive (coloring : Sym2 (Fin 6) → Color)
 
 /-- Ordinary Lean with the same star and internal-edge coverage lemmas. -/
 theorem ramsey_six_shared_helpers (coloring : Sym2 (Fin 6) → Color) :
-    ∃ x y z, Ramsey.Monochromatic coloring x y z := by
+    ∃ x y z : Fin 6, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
+      coloring s(x, y) = coloring s(y, z) ∧ coloring s(y, z) = coloring s(x, z) := by
   let v : Fin 6 := 0
   obtain ⟨x, c, y, z, hvx, hvy, hvz, hxy, hxz, hyz, evx, evy, evz⟩ :=
     pigeonhole_edges_at coloring v
@@ -59,8 +60,8 @@ theorem ramsey_six_shared_helpers (coloring : Sym2 (Fin 6) → Color) :
     have hvq : v ≠ q := by rcases hq with rfl | rfl | rfl <;> assumption
     have evp : coloring s(v, p) = c := by rcases hp with rfl | rfl | rfl <;> assumption
     have evq : coloring s(v, q) = c := by rcases hq with rfl | rfl | rfl <;> assumption
-    exact ⟨v, p, q, hvp, hpq, hvq, c, evp, epq, evq⟩
-  · exact ⟨x, y, z, hxy, hyz, hxz, c.opposite, exy, eyz,
-      by simpa [Sym2.eq_swap] using ezx⟩
+    exact ⟨v, p, q, hvp, hpq, hvq, evp.trans epq.symm, epq.trans evq.symm⟩
+  · have exz : coloring s(x, z) = c.opposite := by simpa [Sym2.eq_swap] using ezx
+    exact ⟨x, y, z, hxy, hyz, hxz, exy.trans eyz.symm, eyz.trans exz.symm⟩
 
 end DesignExamples.PatternContracts

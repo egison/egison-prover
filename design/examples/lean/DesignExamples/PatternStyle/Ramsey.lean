@@ -4,10 +4,6 @@ import DesignExamples.PatternStyle.Common
 
 namespace DesignExamples.PatternStyle.Ramsey
 
-def Monochromatic {n : Nat} (coloring : Sym2 (Fin n) → Color) (x y z : Fin n) : Prop :=
-  x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
-    ∃ c, coloring s(x, y) = c ∧ coloring s(y, z) = c ∧ coloring s(x, z) = c
-
 def neighbors (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) (c : Color) : Finset (Fin 6) :=
   (Finset.univ.erase v).filter (fun w => coloring s(v, w) = c)
 
@@ -95,17 +91,24 @@ def pentagon (x y : Fin 5) : Color :=
 def counterexample : Sym2 (Fin 5) → Color :=
   Sym2.lift ⟨pentagon, by intro x y; simp [pentagon, or_comm]⟩
 
-theorem ramsey_five_counterexample : ¬ ∃ x y z, Monochromatic counterexample x y z := by
-  unfold Monochromatic
+theorem ramsey_five_counterexample :
+    ¬ ∃ x y z : Fin 5, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
+      counterexample s(x, y) = counterexample s(y, z) ∧
+      counterexample s(y, z) = counterexample s(x, z) := by
   decide
 
 theorem pattern_iff_ordinary (coloring : Sym2 (Fin 6) → Color) :
     (∃ x y c z, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
-      coloring s(x, y) = c ∧ coloring s(y, z) = c ∧ coloring s(z, x) = c) ↔ ∃ x y z, Monochromatic coloring x y z := by
+      coloring s(x, y) = c ∧ coloring s(y, z) = c ∧ coloring s(z, x) = c) ↔
+    ∃ x y z : Fin 6, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
+      coloring s(x, y) = coloring s(y, z) ∧ coloring s(y, z) = coloring s(x, z) := by
   constructor
   · rintro ⟨x, y, c, z, hxy, hyz, hxz, exy, eyz, ezx⟩
-    exact ⟨x, y, z, hxy, hyz, hxz, c, exy, eyz, by simpa [Sym2.eq_swap] using ezx⟩
-  · rintro ⟨x, y, z, hxy, hyz, hxz, c, exy, eyz, exz⟩
-    exact ⟨x, y, c, z, hxy, hyz, hxz, exy, eyz, by simpa [Sym2.eq_swap] using exz⟩
+    have exz : coloring s(x, z) = c := by simpa [Sym2.eq_swap] using ezx
+    exact ⟨x, y, z, hxy, hyz, hxz, exy.trans eyz.symm, eyz.trans exz.symm⟩
+  · rintro ⟨x, y, z, hxy, hyz, hxz, h₁, h₂⟩
+    refine ⟨x, y, coloring s(x, y), z, hxy, hyz, hxz, rfl, h₁.symm, ?_⟩
+    have exz : coloring s(x, z) = coloring s(x, y) := (h₁.trans h₂).symm
+    simpa [Sym2.eq_swap] using exz
 
 end DesignExamples.PatternStyle.Ramsey

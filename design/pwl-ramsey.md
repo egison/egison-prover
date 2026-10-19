@@ -33,7 +33,8 @@ Lean 版と、パターンの証拠を明示した Lean 版は Lean 4.31.0 / Mat
 
 ```lean
 theorem ramsey_six (coloring : Sym2 (Fin 6) → Color) :
-    ∃ x y z, Monochromatic coloring x y z := by
+    ∃ x y z : Fin 6, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
+      coloring s(x, y) = coloring s(y, z) ∧ coloring s(y, z) = coloring s(x, z) := by
   let v : Fin 6 := 0
   obtain ⟨c, hc⟩ := pigeonhole_edges coloring v
   obtain ⟨x, y, z, hx, hy, hz, hxy, hxz, hyz⟩ := Finset.two_lt_card_iff.mp (by omega :
@@ -45,13 +46,15 @@ theorem ramsey_six (coloring : Sym2 (Fin 6) → Color) :
   have evy := (Finset.mem_filter.mp hy).2
   have evz := (Finset.mem_filter.mp hz).2
   by_cases hcx : coloring s(x, y) = c
-  · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, c, evx, hcx, evy⟩
+  · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, evx.trans hcx.symm, hcx.trans evy.symm⟩
   by_cases hcy : coloring s(y, z) = c
-  · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, c, evy, hcy, evz⟩
+  · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, evy.trans hcy.symm, hcy.trans evz.symm⟩
   by_cases hcz : coloring s(x, z) = c
-  · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, c, evx, hcz, evz⟩
-  exact ⟨x, y, z, hxy, hyz, hxz, c.opposite,
-    Color.eq_opposite_of_ne hcx, Color.eq_opposite_of_ne hcy, Color.eq_opposite_of_ne hcz⟩
+  · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, evx.trans hcz.symm, hcz.trans evz.symm⟩
+  have exy := Color.eq_opposite_of_ne hcx
+  have eyz := Color.eq_opposite_of_ne hcy
+  have exz := Color.eq_opposite_of_ne hcz
+  exact ⟨x, y, z, hxy, hyz, hxz, exy.trans eyz.symm, eyz.trans exz.symm⟩
 ```
 
 ### パターンマッチ指向スタイル
@@ -131,7 +134,7 @@ x,y,z の相異性、v からの3辺の色が c であることを含む。
 
 `counterexample` は5角形の周上の辺を赤、対角線を青に塗る。
 `ramsey_five_counterexample` が単色三角形の不在を `decide` で証明する。
-自己ループは `Monochromatic` の頂点の相異性によって除外される。
+自己ループは言明に直接記述した頂点の相異性によって除外される。
 上界と下界の両方を全文に含める。
 
 `pattern_iff_ordinary` がパターンで表す主張と通常の存在命題の同値性を証明する。

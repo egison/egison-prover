@@ -2,10 +2,6 @@ import DesignExamples.Common
 
 namespace DesignExamples.Ramsey
 
-def Monochromatic {n : Nat} (coloring : Sym2 (Fin n) → Color) (x y z : Fin n) : Prop :=
-  x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
-    ∃ c, coloring s(x, y) = c ∧ coloring s(y, z) = c ∧ coloring s(x, z) = c
-
 def neighbors (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) (c : Color) : Finset (Fin 6) :=
   (Finset.univ.erase v).filter (fun w => coloring s(v, w) = c)
 
@@ -33,7 +29,8 @@ theorem pigeonhole_edges (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) :
   · exact ⟨.blue, by omega⟩
 
 theorem ramsey_six (coloring : Sym2 (Fin 6) → Color) :
-    ∃ x y z, Monochromatic coloring x y z := by
+    ∃ x y z : Fin 6, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
+      coloring s(x, y) = coloring s(y, z) ∧ coloring s(y, z) = coloring s(x, z) := by
   let v : Fin 6 := 0
   obtain ⟨c, hc⟩ := pigeonhole_edges coloring v
   obtain ⟨x, y, z, hx, hy, hz, hxy, hxz, hyz⟩ := Finset.two_lt_card_iff.mp (by omega :
@@ -45,13 +42,15 @@ theorem ramsey_six (coloring : Sym2 (Fin 6) → Color) :
   have evy := (Finset.mem_filter.mp hy).2
   have evz := (Finset.mem_filter.mp hz).2
   by_cases hcx : coloring s(x, y) = c
-  · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, c, evx, hcx, evy⟩
+  · exact ⟨v, x, y, hvx.symm, hxy, hvy.symm, evx.trans hcx.symm, hcx.trans evy.symm⟩
   by_cases hcy : coloring s(y, z) = c
-  · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, c, evy, hcy, evz⟩
+  · exact ⟨v, y, z, hvy.symm, hyz, hvz.symm, evy.trans hcy.symm, hcy.trans evz.symm⟩
   by_cases hcz : coloring s(x, z) = c
-  · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, c, evx, hcz, evz⟩
-  exact ⟨x, y, z, hxy, hyz, hxz, c.opposite,
-    Color.eq_opposite_of_ne hcx, Color.eq_opposite_of_ne hcy, Color.eq_opposite_of_ne hcz⟩
+  · exact ⟨v, x, z, hvx.symm, hxz, hvz.symm, evx.trans hcz.symm, hcz.trans evz.symm⟩
+  have exy := Color.eq_opposite_of_ne hcx
+  have eyz := Color.eq_opposite_of_ne hcy
+  have exz := Color.eq_opposite_of_ne hcz
+  exact ⟨x, y, z, hxy, hyz, hxz, exy.trans eyz.symm, eyz.trans exz.symm⟩
 
 def pentagon (x y : Fin 5) : Color :=
   if (x.val + 1) % 5 = y.val ∨ (y.val + 1) % 5 = x.val then .red else .blue
@@ -59,8 +58,10 @@ def pentagon (x y : Fin 5) : Color :=
 def counterexample : Sym2 (Fin 5) → Color :=
   Sym2.lift ⟨pentagon, by intro x y; simp [pentagon, or_comm]⟩
 
-theorem ramsey_five_counterexample : ¬ ∃ x y z, Monochromatic counterexample x y z := by
-  unfold Monochromatic
+theorem ramsey_five_counterexample :
+    ¬ ∃ x y z : Fin 5, x ≠ y ∧ y ≠ z ∧ x ≠ z ∧
+      counterexample s(x, y) = counterexample s(y, z) ∧
+      counterexample s(y, z) = counterexample s(x, z) := by
   decide
 
 end DesignExamples.Ramsey
