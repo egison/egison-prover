@@ -17,4 +17,9 @@ def Color.opposite : Color → Color
 theorem Color.eq_opposite_of_ne {a c : Color} (h : a ≠ c) : a = c.opposite := by
   cases a <;> cases c <;> simp_all [Color.opposite]
 
+theorem color_cases (a c : Color) : a = c ∨ a = c.opposite := by
+  by_cases h : a = c
+  · exact Or.inl h
+  · exact Or.inr (Color.eq_opposite_of_ne h)
+
 end DesignExamples

@@ -1,3 +1,4 @@
+import DesignExamples.PatternStyle.Pigeonhole
 -- パターンの関係と証拠の除去を明示した Lean 版。提案ソースからの自動変換ではない。
 -- 提案言語の完全なソース。記法と依存関係は ../../README.md を参照。
 import DesignExamples.PatternStyle.Common
@@ -36,15 +37,13 @@ def Star (coloring : Sym2 (Fin 6) → Color) (v x y z : Fin 6) (c : Color) : Pro
 
 theorem pigeonhole_edges_at (coloring : Sym2 (Fin 6) → Color) (v : Fin 6) :
     ∃ x c y z, Star coloring v x y z c := by
-  obtain ⟨c, hc⟩ := pigeonhole_edges coloring v
-  obtain ⟨x, y, z, hx, hy, hz, hxy, hxz, hyz⟩ :=
-    Finset.two_lt_card_iff.mp (by omega : 2 < (neighbors coloring v c).card)
-  have px := Finset.mem_filter.mp hx
-  have py := Finset.mem_filter.mp hy
-  have pz := Finset.mem_filter.mp hz
-  exact ⟨x, c, y, z, (Finset.mem_erase.mp px.1).1.symm,
-    (Finset.mem_erase.mp py.1).1.symm, (Finset.mem_erase.mp pz.1).1.symm,
-    hxy, hxz, hyz, px.2, py.2, pz.2⟩
+  let f : Fin 5 → Color := fun i => coloring s(v, v.succAbove i)
+  obtain ⟨i, c, j, k, hij, hik, hjk, hi, hj, hk⟩ := Pigeonhole.five_colors f
+  exact ⟨v.succAbove i, c, v.succAbove j, v.succAbove k,
+    Fin.ne_succAbove v i, Fin.ne_succAbove v j, Fin.ne_succAbove v k,
+    fun e => hij (Fin.succAbove_right_injective e),
+    fun e => hik (Fin.succAbove_right_injective e),
+    fun e => hjk (Fin.succAbove_right_injective e), hi, hj, hk⟩
 
 theorem triangle_cases (coloring : Sym2 (Fin 6) → Color) (x y z : Fin 6) (c : Color) :
     coloring s(x, y) = c ∨ coloring s(y, z) = c ∨ coloring s(x, z) = c ∨

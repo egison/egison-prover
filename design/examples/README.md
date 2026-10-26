@@ -8,6 +8,7 @@ Ramsey の定理 R(3,3)=6 を，通常の Lean，提案言語，パターンの�
 | 内容 | 通常の Lean | 提案言語 | 証拠を明示した Lean |
 |---|---|---|---|
 | 色の型と補助補題 | [Common](lean/DesignExamples/Common.lean) | [Common](pmop/DesignExamples/Common.pmop) | [Common](lean/DesignExamples/PatternStyle/Common.lean) |
+| 五つの色からの同色三要素の選択 | [Pigeonhole](lean/DesignExamples/Pigeonhole.lean) | [Pigeonhole](pmop/DesignExamples/Pigeonhole.pmop) | [Pigeonhole](lean/DesignExamples/PatternStyle/Pigeonhole.lean) |
 | 定義・補助補題・上界・下界 | [Ramsey](lean/DesignExamples/Ramsey.lean) | [Ramsey](pmop/DesignExamples/Ramsey.pmop) | [Ramsey](lean/DesignExamples/PatternStyle/Ramsey.lean) |
 
 [PatternContracts.lean](lean/DesignExamples/PatternContracts.lean) は通常の Lean の
@@ -27,8 +28,19 @@ lake env lean Audit.lean
 ```
 
 [Audit.lean](lean/Audit.lean) は両 Lean 版の上界・下界，言明の同値性，網羅性の
-証明が使う公理を表示する．未解決の穴や追加の公理で証明を代用しない．
+すべての補助定理を含む証明が使う公理を表示する．未解決の穴や追加の公理で証明を代用しない．
 下界は `decide` による証明であり，`native_decide` は使わない．
+
+## 鳩の巣原理の証明
+
+`Pigeonhole.five_colors` は五つの入力を最初の三つと残りの二つに分ける．
+最初の三つが同色なら終了する．そうでなければ，同色の二つと反対色の一つを選び，
+残りの二つに前者と同色のものがあるか調べる．あれば前者の二つに加え，
+なければ後者の一つに反対色の二つを加える．`three_color_cases` は八通りの色配置を
+すべて証明し，`two_color_cases` は残り二つの場合分けを証明する．
+入力の番号を区別する補題と `Fin.succAbove` の単射性によって，相異なる三端点を得る．
+`PatternContracts.pigeonhole_edges_at` とパターン版は，この証明を用いる．
+元の数え上げによる Lean の証明も保持する．
 
 ## 提案記法とその意味
 
