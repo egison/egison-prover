@@ -1,2 +1,4 @@
 import DesignExamples.PatternContracts
 import DesignExamples.PatternStyle.Ramsey
+import DesignExamples.Alternating
+import DesignExamples.PatternStyle.Alternating

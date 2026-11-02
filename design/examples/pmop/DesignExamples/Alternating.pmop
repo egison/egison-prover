@@ -1,0 +1,39 @@
+-- 提案記法。現在の処理系では実行できない。
+-- permutation α は，有限置換の入力・出力を一つずつ選ぶマッチャーである。
+-- :: は入力キーを取り除く。# と & は元の置換への等式と条件の併用を表す。
+-- 各パターンの関係と網羅性は Lean の Alternating/Patterns.lean にある。
+-- 条件からの証明引数の補完は既存の提案方針に従い，手動展開を別途検査する。
+import DesignExamples.Alternating.Reductions
+import DesignExamples.Alternating.Patterns
+
+namespace DesignExamples.Alternating.Proposal
+
+open Equiv Equiv.Perm
+
+variable {α : Type*} [DecidableEq α] [Fintype α]
+
+theorem contains_three (h5 : 5 ≤ Nat.card α) {N : Subgroup (Perm α)}
+    (hle : N ≤ alternatingGroup α) (hN : NormalInAlternating N)
+    (σ : Perm α) (hσ : σ ∈ N) (hne : σ ≠ 1) : ∃ τ ∈ N, τ.IsThreeCycle := by
+  match σ as permutation α with
+  | ($a → $b :: #b → $c :: #c → #a :: _) & #(cycle3 a b c) =>
+    have ht := cycle3_isThreeCycle (a := a) (b := b) (c := c)
+    exact ⟨σ, hσ, by simpa [‹σ = cycle3 a b c›] using ht⟩
+  | $a → $b :: #b → $c :: #c → $d :: #d → _ :: _ =>
+    exact three_of_path4 hN hσ
+  | $a → $b :: #b → $c :: #c → #a :: $d → $e :: #e → _ :: _ =>
+    exact three_of_three_extra hN hσ
+  | $a → $b :: #b → #a :: $c → $d :: #d → #c :: _ =>
+    exact three_of_two_pairs h5 hN hσ
+  exhaustive by matching_cases_exhaustive σ (hle hσ) hne
+
+-- 定理の言明も，最後に単純性へ接続する補題も，通常版と同じである。
+theorem alternating_simple (h5 : 5 ≤ Nat.card α) :
+    IsSimpleGroup (alternatingGroup α) :=
+  simple_of_three_cycle_production h5 (fun _ hle hN σ hσ hne =>
+    contains_three h5 hle hN σ hσ hne)
+
+theorem a5_simple : IsSimpleGroup (alternatingGroup (Fin 5)) :=
+  alternating_simple (by simp)
+
+end DesignExamples.Alternating.Proposal

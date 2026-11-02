@@ -6,9 +6,12 @@ A proof language for describing structural selections and decompositions with pa
 
 The proposed language uses the same patterns in theorem statements and proofs.
 A matcher defines a decomposition relation; a successful match supplies selected
-values and evidence of that relation. The current mathematical example is
+values and evidence of that relation. The mathematical examples include
 **Ramsey's theorem R(3,3)=6**, including the six-vertex upper bound and the
-five-vertex counterexample.
+five-vertex counterexample, and **simplicity of the alternating group Aₙ for
+n ≥ 5**. The latter keeps the usual theorem statement and uses patterns only
+inside its proof. Both examples have ordinary Lean proofs and manually expanded
+pattern proofs.
 
 - [Design overview](design/overview.md)
 - [Ramsey comparison](design/pwl-ramsey.md)
@@ -16,6 +19,13 @@ five-vertex counterexample.
 - [Implicit pattern conditions](design/implicit-conditions.md)
 - [Implementation review and remaining work](design/review.md)
 - [Complete sources and verification](design/examples/README.md)
+
+The alternating-group experiment gives both styles the same lemmas for exhaustive
+case analysis and for commutators (`σ τ σ⁻¹ τ⁻¹`). In the current formatting, the central proof has 7 nonblank
+lines in ordinary Lean and 11 in the proposed notation. Patterns display the
+selected points and their images directly in each branch; this experiment does
+not establish a reduction in proof size. Shared mathematics and pattern-specific
+definitions are counted separately in the comparison.
 
 Proposed proofs retain pattern conditions implicitly and supply binding values
 when proving a matching proposition. Obtaining conditions from matcher
@@ -37,9 +47,10 @@ cabal build
 cabal exec egison-prover -- sample/test.pegi
 ```
 
-For the mathematical example, run from `design/examples/lean/`:
+For the mathematical examples, run from `design/examples/lean/`:
 
 ```sh
 lake build
 lake env lean Audit.lean
+lake env lean AuditAlternating.lean
 ```

@@ -36,3 +36,7 @@ import DesignExamples
 #print axioms DesignExamples.Ramsey.pigeonhole_edges
 #print axioms DesignExamples.Ramsey.ramsey_six
 #print axioms DesignExamples.Ramsey.ramsey_five_counterexample
+#print axioms DesignExamples.Alternating.Ordinary.alternating_simple
+#print axioms DesignExamples.Alternating.Ordinary.a5_simple
+#print axioms DesignExamples.Alternating.PatternStyle.alternating_simple
+#print axioms DesignExamples.Alternating.PatternStyle.a5_simple
